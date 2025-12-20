@@ -54,6 +54,11 @@ def ensure_credentials():
         missing.append("Polymarket Private Key")
     if not os.getenv("GOOGLE_API_KEY"):
         missing.append("Google Gemini API Key")
+    
+    # Check for Kalshi (either Email/Pass or Key/Secret)
+    has_kalshi = os.getenv("KALSHI_EMAIL") or os.getenv("KALSHI_KEY_ID")
+    if not has_kalshi:
+        missing.append("Kalshi Credentials")
 
     if missing:
         console.print(Panel(f"[bold yellow]Setup Required[/bold yellow]\nThe following keys are missing: {', '.join(missing)}", border_style="yellow"))
@@ -73,6 +78,27 @@ def ensure_credentials():
                 set_key(env_file, "GOOGLE_API_KEY", key)
                 os.environ["GOOGLE_API_KEY"] = key
                 console.print("[green]✓ Google Gemini Key saved[/green]")
+
+        if "Kalshi Credentials" in missing:
+            auth_type = Prompt.ask("Kalshi Auth Type", choices=["email", "apikey"], default="email")
+            if auth_type == "email":
+                email = Prompt.ask("Enter Kalshi Email")
+                password = Prompt.ask("Enter Kalshi Password", password=True)
+                if email and password:
+                    set_key(env_file, "KALSHI_EMAIL", email)
+                    set_key(env_file, "KALSHI_PASSWORD", password)
+                    os.environ["KALSHI_EMAIL"] = email
+                    os.environ["KALSHI_PASSWORD"] = password
+                    console.print("[green]✓ Kalshi Email/Pass saved[/green]")
+            else:
+                key_id = Prompt.ask("Enter Kalshi Key ID")
+                path = Prompt.ask("Enter path to Kalshi Private Key (.pem)")
+                if key_id and path:
+                    set_key(env_file, "KALSHI_KEY_ID", key_id)
+                    set_key(env_file, "KALSHI_PRIVATE_KEY_PATH", path)
+                    os.environ["KALSHI_KEY_ID"] = key_id
+                    os.environ["KALSHI_PRIVATE_KEY_PATH"] = path
+                    console.print("[green]✓ Kalshi API Key details saved[/green]")
         
         console.print()
 
@@ -104,7 +130,11 @@ def interactive_menu():
                     f.write("") # Clear file
             os.environ.pop("POLY_PRIVATE_KEY", None)
             os.environ.pop("GOOGLE_API_KEY", None)
-            console.print("[bold red]Keys removed. You are logged out.[/bold red]")
+            os.environ.pop("KALSHI_EMAIL", None)
+            os.environ.pop("KALSHI_PASSWORD", None)
+            os.environ.pop("KALSHI_KEY_ID", None)
+            os.environ.pop("KALSHI_PRIVATE_KEY_PATH", None)
+            console.print("[bold red]All keys removed. You are logged out.[/bold red]")
     elif choice in ["5", "/exit", "/quit", "q"]:
         console.print("Goodbye!")
         sys.exit(0)

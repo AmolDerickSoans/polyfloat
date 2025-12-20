@@ -91,35 +91,42 @@ class DashboardApp(App):
         
         while True:
             try:
-                # 1. Update Market Ticker (simple mock for now, or fetch one)
-                p_markets, k_markets = await asyncio.gather(
-                    poly.get_markets(limit=20),
-                    kalshi.get_markets(limit=20)
-                )
+                # 1. Update Market Ticker with real data
+                p_markets = await poly.get_markets(limit=20)
+                k_markets = await kalshi.get_markets(limit=20)
                 
                 if p_markets:
                     self.query_one(MarketTicker).price = p_markets[0].price
                 
                 # 2. Update Arb Table
-                matches = match_markets(p_markets, k_markets)
-                opps = find_opportunities(matches, min_edge=0.01)
-                
                 arb_table = self.query_one("#arb_table", DataTable)
-                arb_table.clear()
-                for o in opps:
-                    arb_table.add_row(o.market_name[:20], f"{o.edge:.2%}", o.direction)
+                if p_markets and k_markets:
+                    matches = match_markets(p_markets, k_markets)
+                    opps = find_opportunities(matches, min_edge=0.01)
+                    arb_table.clear()
+                    if not opps:
+                         # No arbs found, but matching worked
+                         pass
+                    for o in opps:
+                        arb_table.add_row(o.market_name[:20], f"{o.edge:.2%}", o.direction)
+                elif p_markets and not k_markets:
+                    arb_table.clear()
+                    arb_table.add_row("Kalshi Auth Needed", "N/A", "Check .env")
                 
                 # 3. Update Market Table
                 m_table = self.query_one("#market_table", DataTable)
                 m_table.clear()
                 for m in p_markets[:5]:
-                    m_table.add_row("Poly", f"${m.price:.2f}", "N/A")
+                    m_table.add_row("Poly", f"${m.price:.2f}", m.title[:20])
                 for m in k_markets[:5]:
-                    m_table.add_row("Kalshi", f"${m.price:.2f}", "N/A")
+                    m_table.add_row("Kalshi", f"${m.price:.2f}", m.title[:20])
                     
             except Exception as e:
-                # Silently fail in TUI background task or log to a status bar
-                pass
+                # Log error to market table for visibility in dev
+                try:
+                    self.query_one("#market_table", DataTable).add_row("Error", str(e)[:10], "Check logs")
+                except:
+                    pass
                 
             await asyncio.sleep(30)
 
