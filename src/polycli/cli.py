@@ -42,5 +42,12 @@ def version():
     """Show version information"""
     console.print("PolyCLI v0.1.0-foundation")
 
+@app.command()
+def dashboard():
+    """Launch the TUI Dashboard"""
+    from polycli.tui import DashboardApp
+    app = DashboardApp()
+    app.run()
+
 if __name__ == "__main__":
     app()
