@@ -10,3 +10,4 @@ class TradingState(TypedDict):
     risk_score: float
     last_action: str
     next_step: str
+    arb_opportunities: List[Dict[str, Any]]

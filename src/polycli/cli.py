@@ -169,25 +169,82 @@ def search_markets(
     """Search for markets"""
     console.print(f"Searching for '[bold yellow]{query}[/bold yellow]' on [bold green]{provider}[/bold green]...")
 
+arb_app = typer.Typer(help="Arbitrage scanning commands")
+app.add_typer(arb_app, name="arb")
+
+@arb_app.command(name="scan")
+def arb_scan(
+    min_edge: Annotated[float, typer.Option(help="Minimum edge to report")] = 0.02,
+    limit: Annotated[int, typer.Option(help="Number of markets to fetch from each provider")] = 50,
+    mock: Annotated[bool, typer.Option(help="Use mock data for demonstration")] = False
+):
+    """Scan for cross-platform arbitrage (Polymarket vs Kalshi)"""
+    console.print(f"Searching for arbs with min edge [bold cyan]{min_edge:.2%}[/bold cyan]...")
+    
+    import asyncio
+    from polycli.providers.polymarket import PolyProvider
+    from polycli.providers.kalshi import KalshiProvider
+    from polycli.providers.base import MarketData
+    from polycli.utils.matcher import match_markets
+    from polycli.utils.arbitrage import find_opportunities
+    
+    async def run_scan():
+        if mock:
+            p_markets = [
+                MarketData(token_id="p1", title="Will Bitcoin hit $100k in 2025?", price=0.65, volume_24h=1000, liquidity=5000, provider="polymarket"),
+                MarketData(token_id="p2", title="Will Donald Trump win the 2024 Election?", price=0.52, volume_24h=5000, liquidity=20000, provider="polymarket")
+            ]
+            k_markets = [
+                MarketData(token_id="k1", title="Bitcoin to reach $100,000 by end of 2025?", price=0.70, volume_24h=1000, liquidity=5000, provider="kalshi"),
+                MarketData(token_id="k2", title="Donald Trump to win the 2024 Presidential Election?", price=0.48, volume_24h=5000, liquidity=20000, provider="kalshi")
+            ]
+        else:
+            poly = PolyProvider()
+            kalshi = KalshiProvider()
+            with console.status("[bold green]Fetching markets from providers..."):
+                p_markets, k_markets = await asyncio.gather(
+                    poly.get_markets(limit=limit),
+                    kalshi.get_markets(limit=limit)
+                )
+        
+        console.print(f"Fetched {len(p_markets)} from Polymarket, {len(k_markets)} from Kalshi.")
+        
+        with console.status("[bold blue]Matching markets..."):
+            matches = match_markets(p_markets, k_markets)
+        
+        console.print(f"Found {len(matches)} overlapping markets.")
+        
+        with console.status("[bold magenta]Calculating arbitrage..."):
+            opps = find_opportunities(matches, min_edge=min_edge)
+            
+        if not opps:
+            console.print("[yellow]No arbitrage opportunities found above threshold.[/yellow]")
+            return
+
+        table = Table(title="Live Arbitrage Opportunities")
+        table.add_column("Market", style="cyan")
+        table.add_column("Direction", style="magenta")
+        table.add_column("Edge", justify="right", style="bold green")
+        table.add_column("Rec", style="dim")
+        
+        for o in opps:
+            table.add_row(
+                o.market_name,
+                o.direction,
+                f"{o.edge:.2%}",
+                o.recommendation
+            )
+        
+        console.print(table)
+
+    asyncio.run(run_scan())
+
 @app.command()
 def arb(
     min_edge: Annotated[float, typer.Argument(help="Minimum price discrepancy to report")] = 0.03
 ):
-    """Scan for arbitrage opportunities between Polymarket and Kalshi"""
-    console.print(f"Scanning for arbitrage with min edge [bold cyan]{min_edge:.2%}[/bold cyan]...")
-    
-    # Mock detection
-    from polycli.utils.arbitrage import calculate_arbitrage
-    opp = calculate_arbitrage(0.65, 0.70, threshold=min_edge)
-    
-    if opp:
-        console.print(f"[bold green]Opportunity Found![/bold green]")
-        console.print(f"Market: {opp.market_name}")
-        console.print(f"Poly: ${opp.poly_price} | Kalshi: ${opp.kalshi_price}")
-        console.print(f"Edge: [bold yellow]{opp.edge:.2%}[/bold yellow]")
-        console.print(f"Action: [bold cyan]{opp.recommendation}[/bold cyan]")
-    else:
-        console.print("No opportunities found above threshold.")
+    """Scan for arbitrage opportunities (Legacy)"""
+    arb_scan(min_edge=min_edge)
 
 @app.command()
 def version():
@@ -206,16 +263,18 @@ app.add_typer(bot_app, name="bot")
 
 @bot_app.command("deploy")
 def deploy_bot(
-    strategy: Annotated[str, typer.Argument(help="Strategy to deploy")] = "simple",
-    market: Annotated[str, typer.Option("--market", "-m", help="Market to trade on")] = "TRUMP24"
+    strategy: Annotated[str, typer.Argument(help="Strategy to deploy (simple, arb)")] = "simple",
+    market: Annotated[str, typer.Option("--market", "-m", help="Market to trade on (ignored for arb)")] = "TRUMP24"
 ):
     """Deploy an autonomous trading bot"""
-    console.print(f"Deploying bot with strategy [bold cyan]{strategy}[/bold cyan] on market [bold yellow]{market}[/bold yellow]...")
+    console.print(f"Deploying bot with strategy [bold cyan]{strategy}[/bold cyan]...")
     
     import asyncio
     from polycli.agents.graph import create_trading_graph
     
-    graph = create_trading_graph()
+    mode = "arb" if strategy == "arb" else "default"
+    graph = create_trading_graph(mode=mode)
+    
     initial_state = {
         "messages": [],
         "market_data": {"token_id": market, "price": 0.55},
@@ -223,14 +282,20 @@ def deploy_bot(
         "strategy": strategy,
         "risk_score": 0.0,
         "last_action": "INIT",
-        "next_step": "trader"
+        "next_step": "",
+        "arb_opportunities": []
     }
     
     async def run_bot():
         result = await graph.ainvoke(initial_state)
-        console.print(f"Bot Action: [bold green]{result['last_action']}[/bold green]")
-        for msg in result["messages"]:
-            console.print(f"  > {msg}")
+        console.print(f"\n[bold green]Bot Workflow Complete[/bold green]")
+        for msg in result.get("messages", []):
+            # messages might be objects or strings depending on add_messages
+            content = msg.content if hasattr(msg, "content") else str(msg)
+            console.print(f"  > {content}")
+        
+        if strategy == "arb" and result.get("arb_opportunities"):
+            console.print(f"\n[bold yellow]Analysis:[/bold yellow] Found {len(result['arb_opportunities'])} arbs.")
 
     asyncio.run(run_bot())
 

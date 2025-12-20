@@ -22,17 +22,13 @@ class MarketTicker(Static):
 
 class ArbPanel(Static):
     """Panel for displaying arbitrage opportunities"""
-    edge = reactive(0.0)
-
     def compose(self) -> ComposeResult:
         yield Label("Live Arbitrage Scanner", classes="title")
-        yield Label(f"Current Edge: {self.edge:.2%}", id="edge_label")
+        yield DataTable(id="arb_table")
 
-    def watch_edge(self, old_edge: float, new_edge: float) -> None:
-        try:
-            self.query_one("#edge_label", Label).update(f"Current Edge: {new_edge:.2%}")
-        except Exception:
-            pass
+    def on_mount(self) -> None:
+        table = self.query_one("#arb_table", DataTable)
+        table.add_columns("Market", "Edge", "Direction")
 
 class DashboardApp(App):
     """PolyCLI Terminal Dashboard"""
@@ -53,37 +49,79 @@ class DashboardApp(App):
         border: solid green;
         padding: 1;
     }
-    DataTable {
+    #market_table, #arb_table {
         height: 100%;
         border: solid blue;
     }
     """
-    BINDINGS = [("q", "quit", "Quit")]
+    BINDINGS = [
+        ("q", "quit", "Quit"),
+        ("r", "refresh", "Manual Refresh")
+    ]
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield MarketTicker()
         yield ArbPanel()
-        yield DataTable()
+        yield DataTable(id="market_table")
         yield Footer()
 
     def on_mount(self) -> None:
-        table = self.query_one(DataTable)
-        table.add_columns("Provider", "Price", "Volume")
-        table.add_rows([
+        m_table = self.query_one("#market_table", DataTable)
+        m_table.add_columns("Provider", "Price", "Volume")
+        m_table.add_rows([
             ("Polymarket", "0.65", "$1.2M"),
             ("Kalshi", "0.68", "$450K"),
         ])
-        self.simulate_updates()
+        self.update_data()
+
+    async def action_refresh(self) -> None:
+        self.update_data()
 
     @work(exclusive=True)
-    async def simulate_updates(self):
-        """Simulate live data updates for the TUI"""
+    async def update_data(self):
+        """Fetch real data for the TUI"""
+        from polycli.providers.polymarket import PolyProvider
+        from polycli.providers.kalshi import KalshiProvider
+        from polycli.utils.matcher import match_markets
+        from polycli.utils.arbitrage import find_opportunities
+        
+        poly = PolyProvider()
+        kalshi = KalshiProvider()
+        
         while True:
-            await asyncio.sleep(2)
-            new_price = 0.60 + (random.random() * 0.1)
-            self.query_one(MarketTicker).price = new_price
-            self.query_one(ArbPanel).edge = abs(new_price - 0.68)
+            try:
+                # 1. Update Market Ticker (simple mock for now, or fetch one)
+                p_markets, k_markets = await asyncio.gather(
+                    poly.get_markets(limit=20),
+                    kalshi.get_markets(limit=20)
+                )
+                
+                if p_markets:
+                    self.query_one(MarketTicker).price = p_markets[0].price
+                
+                # 2. Update Arb Table
+                matches = match_markets(p_markets, k_markets)
+                opps = find_opportunities(matches, min_edge=0.01)
+                
+                arb_table = self.query_one("#arb_table", DataTable)
+                arb_table.clear()
+                for o in opps:
+                    arb_table.add_row(o.market_name[:20], f"{o.edge:.2%}", o.direction)
+                
+                # 3. Update Market Table
+                m_table = self.query_one("#market_table", DataTable)
+                m_table.clear()
+                for m in p_markets[:5]:
+                    m_table.add_row("Poly", f"${m.price:.2f}", "N/A")
+                for m in k_markets[:5]:
+                    m_table.add_row("Kalshi", f"${m.price:.2f}", "N/A")
+                    
+            except Exception as e:
+                # Silently fail in TUI background task or log to a status bar
+                pass
+                
+            await asyncio.sleep(30)
 
 if __name__ == "__main__":
     app = DashboardApp()

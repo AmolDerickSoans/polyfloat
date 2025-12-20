@@ -3,6 +3,62 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 import os
 
+from polycli.providers.polymarket import PolyProvider
+from polycli.providers.kalshi import KalshiProvider
+from polycli.utils.matcher import match_markets
+from polycli.utils.arbitrage import find_opportunities
+
+async def arb_observer_node(state: TradingState) -> TradingState:
+    """Scan for arbitrage opportunities and add to state"""
+    poly = PolyProvider()
+    kalshi = KalshiProvider()
+    
+    p_markets = await poly.get_markets(limit=30)
+    k_markets = await kalshi.get_markets(limit=30)
+    
+    matches = match_markets(p_markets, k_markets)
+    opps = find_opportunities(matches, min_edge=0.01)
+    
+    # Convert Pydantic models to dicts for state
+    opp_dicts = [o.model_dump() for o in opps]
+    
+    return {
+        **state,
+        "arb_opportunities": opp_dicts,
+        "messages": [f"ArbObserver found {len(opp_dicts)} opportunities."]
+    }
+
+async def arb_planner_node(state: TradingState) -> TradingState:
+    """Evaluate arbs using Gemini and plan execution"""
+    if not state.get("arb_opportunities"):
+        return {**state, "last_action": "IDLE"}
+        
+    opps = state["arb_opportunities"]
+    llm = ChatGoogleGenerativeAI(model="gemini-pro")
+    
+    prompt = f"""
+    You are an Arb Planner. Evaluate these arbitrage opportunities:
+    {opps}
+    
+    Pick the BEST one based on edge and provide a summary.
+    If no opportunity is good (edge < 2%), respond with NO_ACTION.
+    Otherwise respond with EXECUTE: [Market Name] | [Direction] | [Edge]
+    """
+    
+    response = await llm.ainvoke([
+        SystemMessage(content="You are a trading strategist."),
+        HumanMessage(content=prompt)
+    ])
+    
+    plan = response.content.strip()
+    action = "PLAN_READY" if "EXECUTE" in plan else "IDLE"
+    
+    return {
+        **state,
+        "last_action": action,
+        "messages": [f"ArbPlanner: {plan}"]
+    }
+
 async def trader_node(state: TradingState) -> TradingState:
     """Decide on trading actions based on market data using Gemini"""
     
