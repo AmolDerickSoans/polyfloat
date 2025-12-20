@@ -111,6 +111,9 @@ def main_callback(ctx: typer.Context):
     if ctx.invoked_subcommand is None:
         interactive_menu()
 
+import asyncio
+from polycli.providers.polymarket import PolyProvider
+
 @markets_app.command("list")
 def list_markets(
     provider: str = typer.Option("polymarket", "--provider", "-p", help="Provider name"),
@@ -125,10 +128,22 @@ def list_markets(
     table.add_column("Price", justify="right")
     table.add_column("Liquidity", justify="right")
 
-    # Placeholder data for demonstration
-    table.add_row("TRUMP24", "Will Trump win 2024?", "$0.65", "$1.2M")
-    table.add_row("BTC100K", "Will BTC reach $100K by end of year?", "$0.45", "$800K")
-    
+    if provider.lower() == "polymarket":
+        poly = PolyProvider()
+        try:
+            markets = asyncio.run(poly.get_markets(limit=limit))
+            for m in markets:
+                # Truncate title if too long
+                title = m.title[:50] + "..." if len(m.title) > 50 else m.title
+                # Shorten ID
+                tid = m.token_id[:8] + "..." if m.token_id else "N/A"
+                price = f"${m.price:.2f}"
+                liq = "N/A" # Basic endpoint doesn't give liquidity easily
+                table.add_row(tid, title, price, liq)
+        except Exception as e:
+            console.print(f"[red]Error fetching data: {e}[/red]")
+            return
+
     console.print(table)
 
 @markets_app.command("search")
