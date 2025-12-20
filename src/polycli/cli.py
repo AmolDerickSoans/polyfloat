@@ -101,7 +101,7 @@ def interactive_menu():
 @app.callback(invoke_without_command=True)
 def main_callback(ctx: typer.Context):
     """
-    PolyCLI Entry Point
+    PolyCLI Entry Point (v1.0)
     """
     # Only print header and check envs if not running a help command
     if "--help" not in sys.argv:
