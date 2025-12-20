@@ -38,6 +38,26 @@ def search_markets(
     console.print(f"Searching for '[bold yellow]{query}[/bold yellow]' on [bold green]{provider}[/bold green]...")
 
 @app.command()
+def arb(
+    min_edge: float = typer.Argument(0.03, help="Minimum price discrepancy to report")
+):
+    """Scan for arbitrage opportunities between Polymarket and Kalshi"""
+    console.print(f"Scanning for arbitrage with min edge [bold cyan]{min_edge:.2%}[/bold cyan]...")
+    
+    # Mock detection
+    from polycli.utils.arbitrage import calculate_arbitrage
+    opp = calculate_arbitrage(0.65, 0.70, threshold=min_edge)
+    
+    if opp:
+        console.print(f"[bold green]Opportunity Found![/bold green]")
+        console.print(f"Market: {opp.market_name}")
+        console.print(f"Poly: ${opp.poly_price} | Kalshi: ${opp.kalshi_price}")
+        console.print(f"Edge: [bold yellow]{opp.edge:.2%}[/bold yellow]")
+        console.print(f"Action: [bold cyan]{opp.recommendation}[/bold cyan]")
+    else:
+        console.print("No opportunities found above threshold.")
+
+@app.command()
 def version():
     """Show version information"""
     console.print("PolyCLI v0.1.0-foundation")
