@@ -69,5 +69,38 @@ def dashboard():
     app = DashboardApp()
     app.run()
 
+bot_app = typer.Typer(help="Agent and bot management")
+app.add_typer(bot_app, name="bot")
+
+@bot_app.command("deploy")
+def deploy_bot(
+    strategy: str = typer.Argument("simple", help="Strategy to deploy"),
+    market: str = typer.Option("TRUMP24", "--market", "-m")
+):
+    """Deploy an autonomous trading bot"""
+    console.print(f"Deploying bot with strategy [bold cyan]{strategy}[/bold cyan] on market [bold yellow]{market}[/bold yellow]...")
+    
+    import asyncio
+    from polycli.agents.graph import create_trading_graph
+    
+    graph = create_trading_graph()
+    initial_state = {
+        "messages": [],
+        "market_data": {"token_id": market, "price": 0.55},
+        "positions": [],
+        "strategy": strategy,
+        "risk_score": 0.0,
+        "last_action": "INIT",
+        "next_step": "trader"
+    }
+    
+    async def run_bot():
+        result = await graph.ainvoke(initial_state)
+        console.print(f"Bot Action: [bold green]{result['last_action']}[/bold green]")
+        for msg in result["messages"]:
+            console.print(f"  > {msg}")
+
+    asyncio.run(run_bot())
+
 if __name__ == "__main__":
     app()
