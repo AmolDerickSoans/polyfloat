@@ -40,27 +40,41 @@ def print_header():
 def ensure_credentials():
     """Check for required keys and prompt if missing"""
     env_file = ".env"
+    
+    # Ensure .env exists
     if not os.path.exists(env_file):
         with open(env_file, "w") as f:
-            f.write("")
+            pass
 
-    # Polymarket Key
+    # Re-load to ensure we have latest from file
+    load_dotenv(env_file, override=True)
+
+    missing = []
     if not os.getenv("POLY_PRIVATE_KEY"):
-        console.print("[bold yellow]Missing Polymarket Private Key![/bold yellow]")
-        key = Prompt.ask("Enter your Polymarket Private Key", password=True)
-        if key:
-            set_key(env_file, "POLY_PRIVATE_KEY", key)
-            os.environ["POLY_PRIVATE_KEY"] = key
-            console.print("[green]Key saved to .env[/green]")
-
-    # Google Gemini Key
+        missing.append("Polymarket Private Key")
     if not os.getenv("GOOGLE_API_KEY"):
-        console.print("[bold yellow]Missing Google Gemini API Key![/bold yellow]")
-        key = Prompt.ask("Enter your Google Gemini API Key", password=True)
-        if key:
-            set_key(env_file, "GOOGLE_API_KEY", key)
-            os.environ["GOOGLE_API_KEY"] = key
-            console.print("[green]Key saved to .env[/green]")
+        missing.append("Google Gemini API Key")
+
+    if missing:
+        console.print(Panel(f"[bold yellow]Setup Required[/bold yellow]\nThe following keys are missing: {', '.join(missing)}", border_style="yellow"))
+        
+        if "Polymarket Private Key" in missing:
+            key = Prompt.ask("Enter your Polymarket Private Key", password=True)
+            if key:
+                if not key.startswith("0x"):
+                    console.print("[yellow]Warning: Poly key usually starts with 0x[/yellow]")
+                set_key(env_file, "POLY_PRIVATE_KEY", key)
+                os.environ["POLY_PRIVATE_KEY"] = key
+                console.print("[green]✓ Polymarket Key saved[/green]")
+
+        if "Google Gemini API Key" in missing:
+            key = Prompt.ask("Enter your Google Gemini API Key", password=True)
+            if key:
+                set_key(env_file, "GOOGLE_API_KEY", key)
+                os.environ["GOOGLE_API_KEY"] = key
+                console.print("[green]✓ Google Gemini Key saved[/green]")
+        
+        console.print()
 
 def interactive_menu():
     """Show an interactive menu if no command is passed"""
@@ -114,20 +128,21 @@ def main_callback(ctx: typer.Context):
 import asyncio
 from polycli.providers.polymarket import PolyProvider
 
-@markets_app.command("list")
+from typing import Annotated
+
+@markets_app.command(name="list")
 def list_markets(
-    provider: str = typer.Option("polymarket", "--provider", "-p", help="Provider name"),
-    limit: int = typer.Option(10, "--limit", "-l", help="Number of markets to show")
+    limit: Annotated[int, typer.Option(help="Number of markets to show")] = 20,
+    provider: Annotated[str, typer.Option(help="Market provider")] = "polymarket"
 ):
     """List available markets"""
-    console.print(f"Fetching [bold cyan]{limit}[/bold cyan] markets from [bold green]{provider}[/bold green]...")
+    console.print(f"Fetching {limit} markets from {provider}...")
     
-    table = Table(title=f"Top {limit} Markets on {provider}")
-    table.add_column("Token ID", style="dim")
-    table.add_column("Title")
+    table = Table(title=f"Live Markets ({provider.upper()})")
+    table.add_column("Question", style="cyan")
     table.add_column("Price", justify="right")
     table.add_column("Liquidity", justify="right")
-
+    
     if provider.lower() == "polymarket":
         poly = PolyProvider()
         try:
@@ -156,7 +171,7 @@ def search_markets(
 
 @app.command()
 def arb(
-    min_edge: float = typer.Argument(0.03, help="Minimum price discrepancy to report")
+    min_edge: Annotated[float, typer.Argument(help="Minimum price discrepancy to report")] = 0.03
 ):
     """Scan for arbitrage opportunities between Polymarket and Kalshi"""
     console.print(f"Scanning for arbitrage with min edge [bold cyan]{min_edge:.2%}[/bold cyan]...")
@@ -191,8 +206,8 @@ app.add_typer(bot_app, name="bot")
 
 @bot_app.command("deploy")
 def deploy_bot(
-    strategy: str = typer.Argument("simple", help="Strategy to deploy"),
-    market: str = typer.Option("TRUMP24", "--market", "-m")
+    strategy: Annotated[str, typer.Argument(help="Strategy to deploy")] = "simple",
+    market: Annotated[str, typer.Option("--market", "-m", help="Market to trade on")] = "TRUMP24"
 ):
     """Deploy an autonomous trading bot"""
     console.print(f"Deploying bot with strategy [bold cyan]{strategy}[/bold cyan] on market [bold yellow]{market}[/bold yellow]...")
