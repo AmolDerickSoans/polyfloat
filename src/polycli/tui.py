@@ -44,7 +44,7 @@ class DashboardApp(App):
         padding: 1;
     }
     .title {
-        font-weight: bold;
+        text-style: bold;
         color: cyan;
         margin-bottom: 1;
     }
