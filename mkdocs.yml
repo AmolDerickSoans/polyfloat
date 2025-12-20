@@ -1,0 +1,17 @@
+site_name: PolyCLI Documentation
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: cyan
+
+nav:
+  - Home: index.md
+  - User Guide:
+    - CLI Commands: user-guide/cli-commands.md
+    - TUI Dashboard: user-guide/tui.md
+  - API Reference:
+    - Providers: api/providers.md
+
+plugins:
+  - search
