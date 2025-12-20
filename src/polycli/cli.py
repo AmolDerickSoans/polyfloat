@@ -64,24 +64,39 @@ def ensure_credentials():
 
 def interactive_menu():
     """Show an interactive menu if no command is passed"""
-    console.print(Panel("[bold cyan]Welcome to PolyFloat[/bold cyan]\nSelect an action below:", border_style="cyan"))
+    console.print(Panel("[bold cyan]Welcome to PolyFloat[/bold cyan]\nSelect an action or use slash commands:", border_style="cyan"))
     
-    console.print("1. [bold green]Dashboard[/bold green] (Real-time monitoring)")
-    console.print("2. [bold blue]Market List[/bold blue] (View top markets)")
-    console.print("3. [bold magenta]Arb Scanner[/bold magenta] (Find opportunities)")
-    console.print("4. [bold white]Exit[/bold white]")
+    console.print("1. [bold green]Dashboard[/bold green]   (/dash)")
+    console.print("2. [bold blue]Market List[/bold blue] (/markets)")
+    console.print("3. [bold magenta]Arb Scanner[/bold magenta] (/arb)")
+    console.print("4. [bold red]Logout[/bold red]      (/logout)")
+    console.print("5. [bold white]Exit[/bold white]        (/exit)")
     
-    choice = Prompt.ask("Select an option", choices=["1", "2", "3", "4"], default="1")
+    choice = Prompt.ask("Select an option", default="1")
+    choice = choice.lower().strip()
     
-    if choice == "1":
+    if choice in ["1", "/dash", "/dashboard"]:
         dashboard()
-    elif choice == "2":
+    elif choice in ["2", "/markets", "/list"]:
         list_markets()
-    elif choice == "3":
+    elif choice in ["3", "/arb", "/scan"]:
         arb(min_edge=0.03)
-    elif choice == "4":
+    elif choice in ["4", "/logout"]:
+        confirm = Prompt.ask("Are you sure you want to remove your API keys?", choices=["y", "n"], default="n")
+        if confirm == "y":
+            env_file = ".env"
+            if os.path.exists(env_file):
+                with open(env_file, "w") as f:
+                    f.write("") # Clear file
+            os.environ.pop("POLY_PRIVATE_KEY", None)
+            os.environ.pop("GOOGLE_API_KEY", None)
+            console.print("[bold red]Keys removed. You are logged out.[/bold red]")
+    elif choice in ["5", "/exit", "/quit", "q"]:
         console.print("Goodbye!")
         sys.exit(0)
+    else:
+        console.print("[red]Invalid option[/red]")
+        interactive_menu()
 
 @app.callback(invoke_without_command=True)
 def main_callback(ctx: typer.Context):
