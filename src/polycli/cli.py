@@ -1,13 +1,100 @@
 import typer
+import os
+import sys
 from typing import Optional
 from rich.console import Console
 from rich.table import Table
+from rich.prompt import Prompt
+from rich.panel import Panel
+from dotenv import load_dotenv, set_key
 
-app = typer.Typer(help="PolyCLI: Agentic Terminal for Prediction Markets")
+# Load existing environment variables
+load_dotenv()
+
+app = typer.Typer(
+    help="PolyCLI: Agentic Terminal for Prediction Markets",
+    no_args_is_help=False,  # We will handle no-args manually
+    add_completion=False
+)
 markets_app = typer.Typer(help="Market data commands")
 app.add_typer(markets_app, name="markets")
 
 console = Console()
+
+def print_header():
+    """Print the Poly Float ASCII art header in yellow/orange"""
+    ascii_art = r"""
+  ____       _          _____ _             _   
+ |  _ \ ___ | |_   _   |  ___| | ___   __ _| |_ 
+ | |_) / _ \| | | | |  | |_  | |/ _ \ / _` | __|
+ |  __/ (_) | | |_| |  |  _| | | (_) | (_| | |_ 
+ |_|   \___/|_|\__, |  |_|   |_|\___/ \__,_|\__|
+               |___/                            
+"""
+    # Simple gradient-like effect using rich styles
+    console.print(ascii_art, style="bold color(208)")  # Orange-ish
+    console.print("       Prediction Market Intelligence Terminal", style="italic yellow")
+    console.print("       ---------------------------------------", style="dim yellow")
+    console.print()
+
+def ensure_credentials():
+    """Check for required keys and prompt if missing"""
+    env_file = ".env"
+    if not os.path.exists(env_file):
+        with open(env_file, "w") as f:
+            f.write("")
+
+    # Polymarket Key
+    if not os.getenv("POLY_PRIVATE_KEY"):
+        console.print("[bold yellow]Missing Polymarket Private Key![/bold yellow]")
+        key = Prompt.ask("Enter your Polymarket Private Key", password=True)
+        if key:
+            set_key(env_file, "POLY_PRIVATE_KEY", key)
+            os.environ["POLY_PRIVATE_KEY"] = key
+            console.print("[green]Key saved to .env[/green]")
+
+    # Google Gemini Key
+    if not os.getenv("GOOGLE_API_KEY"):
+        console.print("[bold yellow]Missing Google Gemini API Key![/bold yellow]")
+        key = Prompt.ask("Enter your Google Gemini API Key", password=True)
+        if key:
+            set_key(env_file, "GOOGLE_API_KEY", key)
+            os.environ["GOOGLE_API_KEY"] = key
+            console.print("[green]Key saved to .env[/green]")
+
+def interactive_menu():
+    """Show an interactive menu if no command is passed"""
+    console.print(Panel("[bold cyan]Welcome to PolyFloat[/bold cyan]\nSelect an action below:", border_style="cyan"))
+    
+    console.print("1. [bold green]Dashboard[/bold green] (Real-time monitoring)")
+    console.print("2. [bold blue]Market List[/bold blue] (View top markets)")
+    console.print("3. [bold magenta]Arb Scanner[/bold magenta] (Find opportunities)")
+    console.print("4. [bold white]Exit[/bold white]")
+    
+    choice = Prompt.ask("Select an option", choices=["1", "2", "3", "4"], default="1")
+    
+    if choice == "1":
+        dashboard()
+    elif choice == "2":
+        list_markets()
+    elif choice == "3":
+        arb(min_edge=0.03)
+    elif choice == "4":
+        console.print("Goodbye!")
+        sys.exit(0)
+
+@app.callback(invoke_without_command=True)
+def main_callback(ctx: typer.Context):
+    """
+    PolyCLI Entry Point
+    """
+    # Only print header and check envs if not running a help command
+    if "--help" not in sys.argv:
+        print_header()
+        ensure_credentials()
+        
+    if ctx.invoked_subcommand is None:
+        interactive_menu()
 
 @markets_app.command("list")
 def list_markets(
