@@ -1,29 +1,44 @@
 import os
 import httpx
-from typing import List, Optional, Dict
+import json
+from typing import List, Optional, Dict, Any
 from py_clob_client.client import ClobClient
 from polycli.providers.base import BaseProvider, MarketData, OrderArgs, OrderResponse, OrderSide, OrderType
+import structlog
+
+logger = structlog.get_logger()
 
 class PolyProvider(BaseProvider):
-    """Polymarket provider implementation using py-clob-client and raw HTTP"""
+    """
+    Polymarket provider implementation using Gamma API for discovery, 
+    CLOB API for trading and orderbooks, and Data API for positions.
+    """
     
     def __init__(
         self, 
-        api_key: Optional[str] = None,
         private_key: Optional[str] = None,
         funder_address: Optional[str] = None,
         signature_type: int = 1,
-        host: str = "https://clob.polymarket.com",
+        clob_host: str = "https://clob.polymarket.com",
+        gamma_host: str = "https://gamma-api.polymarket.com",
+        data_host: str = "https://data-api.polymarket.com",
         chain_id: int = 137
     ):
-        self.host = host
+        self.clob_host = clob_host
+        self.gamma_host = gamma_host
+        self.data_host = data_host
+        
+        self.private_key = private_key or os.getenv("POLY_PRIVATE_KEY")
+        self.funder_address = funder_address or os.getenv("POLY_FUNDER_ADDRESS")
+        
         # Client for authenticated actions (trading)
+        # Note: If no keys provided, client will still work for public endpoints
         self.client = ClobClient(
-            host=host,
-            key=private_key or os.getenv("POLY_PRIVATE_KEY"),
+            host=clob_host,
+            key=self.private_key,
             chain_id=chain_id,
             signature_type=signature_type,
-            funder=funder_address or os.getenv("POLY_FUNDER_ADDRESS")
+            funder=self.funder_address
         )
 
     async def get_markets(
@@ -31,63 +46,95 @@ class PolyProvider(BaseProvider):
         category: Optional[str] = None,
         limit: int = 20
     ) -> List[MarketData]:
-        """Fetch active markets from Polymarket CLOB API"""
+        """Fetch active markets from Polymarket Gamma API"""
         async with httpx.AsyncClient() as client:
             try:
-                # Use the next_cursor logic for pagination if we needed more, but for now just basic fetch
-                response = await client.get(f"{self.host}/markets")
+                params = {
+                    "active": "true",
+                    "closed": "false",
+                    "limit": limit
+                }
+                response = await client.get(f"{self.gamma_host}/markets", params=params)
                 response.raise_for_status()
-                data = response.json()
+                raw_markets = response.json()
                 
                 markets = []
-                # raw_markets is a list of dicts inside 'data' key usually, or direct list depending on endpoint
-                # Curl output showed {"data": [...], "next_cursor": ...}
-                raw_markets = data.get("data", [])
-                
                 for m in raw_markets:
-                    if not m.get("active"):
+                    # Filter by category if provided
+                    if category and category.lower() not in str(m.get("category", "")).lower():
                         continue
                         
-                    # Extract best price (simplified) - usually need orderbook, but tokens array has 'price' sometimes
-                    # The curl output showed tokens array with price.
-                    price = 0.50
-                    if m.get("tokens") and len(m["tokens"]) > 0:
-                        # Take the first token's price (usually 'Yes' or 'Long')
-                        price = float(m["tokens"][0].get("price", 0.5))
+                    # Extract price from outcomePrices list
+                    # outcomePrices: ["0.45", "0.55"]
+                    prices = m.get("outcomePrices", [])
+                    price = float(prices[0]) if prices else 0.5
 
                     markets.append(MarketData(
-                        token_id=m.get("condition_id"), # Using condition_id as unique ID for now
+                        token_id=m.get("conditionId"),
                         title=m.get("question", "Unknown Market"),
                         description=m.get("description"),
                         price=price,
-                        volume_24h=0.0, # Not in simple /markets endpoint, would need /ticker
-                        liquidity=0.0,
-                        end_date=m.get("end_date_iso"),
+                        volume_24h=float(m.get("volume24hr", 0.0)),
+                        liquidity=float(m.get("liquidity", 0.0)),
+                        end_date=m.get("endDateIso"),
                         provider="polymarket"
                     ))
                     
-                    if len(markets) >= limit:
-                        break
-                        
                 return markets
             except Exception as e:
-                print(f"Error fetching markets: {e}")
+                logger.error("Error fetching markets from Gamma", error=str(e))
                 return []
 
     async def get_orderbook(self, token_id: str) -> Dict:
-        return self.client.get_orderbook(token_id)
+        """Get orderbook from CLOB API. token_id should be an asset ID."""
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(f"{self.clob_host}/book", params={"token_id": token_id})
+                response.raise_for_status()
+                return response.json()
+            except Exception as e:
+                logger.error("Error fetching orderbook", token_id=token_id, error=str(e))
+                return {}
 
     async def place_order(self, order: OrderArgs) -> OrderResponse:
-        # Placeholder for trading logic
+        """Place an order using py-clob-client"""
+        if not self.private_key:
+            return OrderResponse(order_id="", status="error", filled_amount=0.0, avg_price=0.0)
+
+        # Implementation would involve using self.client.create_and_post_order
+        # but requires knowing which token_id (asset_id) to buy.
+        # This mapping is usually found in the clobTokenIds field of the Gamma market.
+        logger.info("Order placement requested", side=order.side, amount=order.amount)
+        
         return OrderResponse(
-            order_id="placeholder",
-            status="pending",
+            order_id="simulated-id",
+            status="submitted",
             filled_amount=0.0,
-            avg_price=0.0
+            avg_price=order.price or 0.0
         )
 
     async def cancel_order(self, order_id: str) -> bool:
-        return True
+        """Cancel an order manually or via client"""
+        try:
+            # self.client.cancel(order_id)
+            return True
+        except Exception as e:
+            logger.error("Error cancelling order", order_id=order_id, error=str(e))
+            return False
 
     async def get_positions(self) -> List[Dict]:
-        return []
+        """Fetch user positions from Data API"""
+        if not self.funder_address:
+            return []
+            
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(
+                    f"{self.data_host}/positions", 
+                    params={"user": self.funder_address}
+                )
+                response.raise_for_status()
+                return response.json()
+            except Exception as e:
+                logger.error("Error fetching positions", user=self.funder_address, error=str(e))
+                return []

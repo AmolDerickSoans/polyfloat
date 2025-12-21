@@ -50,97 +50,123 @@ def ensure_credentials():
     load_dotenv(env_file, override=True)
 
     missing = []
-    if not os.getenv("POLY_PRIVATE_KEY"):
+    if not os.getenv("POLY_PRIVATE_KEY") and os.getenv("SKIP_POLY") != "true":
         missing.append("Polymarket Private Key")
-    if not os.getenv("GOOGLE_API_KEY"):
+    
+    # Only ask for Gemini if it's not set AND not explicitly skipped
+    if not os.getenv("GOOGLE_API_KEY") and os.getenv("SKIP_GEMINI") != "true":
         missing.append("Google Gemini API Key")
     
     # Check for Kalshi (either Email/Pass or Key/Secret)
     has_kalshi = os.getenv("KALSHI_EMAIL") or os.getenv("KALSHI_KEY_ID")
-    if not has_kalshi:
+    if not has_kalshi and os.getenv("SKIP_KALSHI") != "true":
         missing.append("Kalshi Credentials")
 
     if missing:
-        console.print(Panel(f"[bold yellow]Setup Required[/bold yellow]\nThe following keys are missing: {', '.join(missing)}", border_style="yellow"))
+        console.print(Panel(f"[bold yellow]Setup Required[/bold yellow]\nYou can skip setup for any provider, but related features will be disabled.", border_style="yellow"))
         
         if "Polymarket Private Key" in missing:
-            key = Prompt.ask("Enter your Polymarket Private Key", password=True)
-            if key:
-                if not key.startswith("0x"):
-                    console.print("[yellow]Warning: Poly key usually starts with 0x[/yellow]")
-                set_key(env_file, "POLY_PRIVATE_KEY", key)
-                os.environ["POLY_PRIVATE_KEY"] = key
-                console.print("[green]✓ Polymarket Key saved[/green]")
+            console.print("\n[bold cyan]Polymarket Integration[/bold cyan]")
+            console.print("Required for [italic]executing trades, managing orders, and viewing your portfolio on Polymarket.[/italic]")
+            if Prompt.ask("Enable Polymarket trading?", choices=["y", "n"], default="y") == "y":
+                key = Prompt.ask("Enter your Polymarket Private Key", password=True)
+                if key:
+                    if not key.startswith("0x"):
+                        console.print("[yellow]Warning: Poly key usually starts with 0x[/yellow]")
+                    set_key(env_file, "POLY_PRIVATE_KEY", key)
+                    set_key(env_file, "SKIP_POLY", "false")
+                    os.environ["POLY_PRIVATE_KEY"] = key
+                    console.print("[green]✓ Polymarket Key saved[/green]")
+            else:
+                set_key(env_file, "SKIP_POLY", "true")
+                console.print("[yellow]Skipping Polymarket setup. Trading disabled.[/yellow]")
 
         if "Google Gemini API Key" in missing:
-            key = Prompt.ask("Enter your Google Gemini API Key", password=True)
-            if key:
-                set_key(env_file, "GOOGLE_API_KEY", key)
-                os.environ["GOOGLE_API_KEY"] = key
-                console.print("[green]✓ Google Gemini Key saved[/green]")
+            console.print("\n[bold cyan]Gemini AI Features[/bold cyan]")
+            console.print("Required for [italic]autonomous trading agents, market sentiment analysis, and automated strategy planning.[/italic]")
+            if Prompt.ask("Enable Gemini AI features?", choices=["y", "n"], default="n") == "y":
+                key = Prompt.ask("Enter your Google Gemini API Key", password=True)
+                if key:
+                    set_key(env_file, "GOOGLE_API_KEY", key)
+                    set_key(env_file, "SKIP_GEMINI", "false")
+                    os.environ["GOOGLE_API_KEY"] = key
+                    console.print("[green]✓ Google Gemini Key saved[/green]")
+            else:
+                set_key(env_file, "SKIP_GEMINI", "true")
+                console.print("[yellow]Skipping Gemini setup. AI features disabled.[/yellow]")
 
         if "Kalshi Credentials" in missing:
-            auth_type = Prompt.ask("Kalshi Auth Type", choices=["email", "apikey"], default="email")
-            if auth_type == "email":
-                email = Prompt.ask("Enter Kalshi Email")
-                password = Prompt.ask("Enter Kalshi Password", password=True)
-                if email and password:
-                    set_key(env_file, "KALSHI_EMAIL", email)
-                    set_key(env_file, "KALSHI_PASSWORD", password)
-                    os.environ["KALSHI_EMAIL"] = email
-                    os.environ["KALSHI_PASSWORD"] = password
-                    console.print("[green]✓ Kalshi Email/Pass saved[/green]")
+            console.print("\n[bold cyan]Kalshi Integration[/bold cyan]")
+            console.print("Required for [italic]cross-platform arbitrage, trading on Kalshi, and unified portfolio management.[/italic]")
+            if Prompt.ask("Enable Kalshi integration?", choices=["y", "n"], default="y") == "y":
+                auth_type = Prompt.ask("Kalshi Auth Type", choices=["email", "apikey"], default="email")
+                if auth_type == "email":
+                    email = Prompt.ask("Enter Kalshi Email")
+                    password = Prompt.ask("Enter Kalshi Password", password=True)
+                    if email and password:
+                        set_key(env_file, "KALSHI_EMAIL", email)
+                        set_key(env_file, "KALSHI_PASSWORD", password)
+                        set_key(env_file, "SKIP_KALSHI", "false")
+                        os.environ["KALSHI_EMAIL"] = email
+                        os.environ["KALSHI_PASSWORD"] = password
+                        console.print("[green]✓ Kalshi Email/Pass saved[/green]")
+                else:
+                    key_id = Prompt.ask("Enter Kalshi Key ID")
+                    path = Prompt.ask("Enter path to Kalshi Private Key (.pem)")
+                    if key_id and path:
+                        set_key(env_file, "KALSHI_KEY_ID", key_id)
+                        set_key(env_file, "KALSHI_PRIVATE_KEY_PATH", path)
+                        set_key(env_file, "SKIP_KALSHI", "false")
+                        os.environ["KALSHI_KEY_ID"] = key_id
+                        os.environ["KALSHI_PRIVATE_KEY_PATH"] = path
+                        console.print("[green]✓ Kalshi API Key details saved[/green]")
             else:
-                key_id = Prompt.ask("Enter Kalshi Key ID")
-                path = Prompt.ask("Enter path to Kalshi Private Key (.pem)")
-                if key_id and path:
-                    set_key(env_file, "KALSHI_KEY_ID", key_id)
-                    set_key(env_file, "KALSHI_PRIVATE_KEY_PATH", path)
-                    os.environ["KALSHI_KEY_ID"] = key_id
-                    os.environ["KALSHI_PRIVATE_KEY_PATH"] = path
-                    console.print("[green]✓ Kalshi API Key details saved[/green]")
+                set_key(env_file, "SKIP_KALSHI", "true")
+                console.print("[yellow]Skipping Kalshi setup. Arbitrage will be limited.[/yellow]")
         
         console.print()
 
 def interactive_menu():
     """Show an interactive menu if no command is passed"""
-    console.print(Panel("[bold cyan]Welcome to PolyFloat[/bold cyan]\nSelect an action or use slash commands:", border_style="cyan"))
-    
-    console.print("1. [bold green]Dashboard[/bold green]   (/dash)")
-    console.print("2. [bold blue]Market List[/bold blue] (/markets)")
-    console.print("3. [bold magenta]Arb Scanner[/bold magenta] (/arb)")
-    console.print("4. [bold red]Logout[/bold red]      (/logout)")
-    console.print("5. [bold white]Exit[/bold white]        (/exit)")
-    
-    choice = Prompt.ask("Select an option", default="1")
-    choice = choice.lower().strip()
-    
-    if choice in ["1", "/dash", "/dashboard"]:
-        dashboard()
-    elif choice in ["2", "/markets", "/list"]:
-        list_markets()
-    elif choice in ["3", "/arb", "/scan"]:
-        arb(min_edge=0.03)
-    elif choice in ["4", "/logout"]:
-        confirm = Prompt.ask("Are you sure you want to remove your API keys?", choices=["y", "n"], default="n")
-        if confirm == "y":
-            env_file = ".env"
-            if os.path.exists(env_file):
-                with open(env_file, "w") as f:
-                    f.write("") # Clear file
-            os.environ.pop("POLY_PRIVATE_KEY", None)
-            os.environ.pop("GOOGLE_API_KEY", None)
-            os.environ.pop("KALSHI_EMAIL", None)
-            os.environ.pop("KALSHI_PASSWORD", None)
-            os.environ.pop("KALSHI_KEY_ID", None)
-            os.environ.pop("KALSHI_PRIVATE_KEY_PATH", None)
-            console.print("[bold red]All keys removed. You are logged out.[/bold red]")
-    elif choice in ["5", "/exit", "/quit", "q"]:
-        console.print("Goodbye!")
-        sys.exit(0)
-    else:
-        console.print("[red]Invalid option[/red]")
-        interactive_menu()
+    while True:
+        console.print(Panel("[bold cyan]Welcome to PolyFloat[/bold cyan]\nSelect an action or use slash commands:", border_style="cyan"))
+        
+        console.print("1. [bold green]Dashboard[/bold green]   (/dash)")
+        console.print("2. [bold blue]Market List[/bold blue] (/markets)")
+        console.print("3. [bold magenta]Arb Scanner[/bold magenta] (/arb)")
+        console.print("4. [bold red]Logout[/bold red]      (/logout)")
+        console.print("5. [bold white]Exit[/bold white]        (/exit)")
+        
+        choice = Prompt.ask("Select an option", default="1")
+        choice = choice.lower().strip()
+        
+        if choice in ["1", "/dash", "/dashboard"]:
+            dashboard()
+        elif choice in ["2", "/markets", "/list"]:
+            list_markets()
+            Prompt.ask("\nPress Enter to return to menu")
+        elif choice in ["3", "/arb", "/scan"]:
+            arb_scan(min_edge=0.03)
+            Prompt.ask("\nPress Enter to return to menu")
+        elif choice in ["4", "/logout"]:
+            confirm = Prompt.ask("Are you sure you want to remove your API keys?", choices=["y", "n"], default="n")
+            if confirm == "y":
+                env_file = ".env"
+                if os.path.exists(env_file):
+                    with open(env_file, "w") as f:
+                        f.write("") # Clear file
+                os.environ.pop("POLY_PRIVATE_KEY", None)
+                os.environ.pop("GOOGLE_API_KEY", None)
+                os.environ.pop("KALSHI_EMAIL", None)
+                os.environ.pop("KALSHI_PASSWORD", None)
+                os.environ.pop("KALSHI_KEY_ID", None)
+                os.environ.pop("KALSHI_PRIVATE_KEY_PATH", None)
+                console.print("[bold red]All keys removed. You are logged out.[/bold red]")
+        elif choice in ["5", "/exit", "/quit", "q"]:
+            console.print("Goodbye!")
+            sys.exit(0)
+        else:
+            console.print("[red]Invalid option[/red]")
 
 @app.callback(invoke_without_command=True)
 def main_callback(ctx: typer.Context):
