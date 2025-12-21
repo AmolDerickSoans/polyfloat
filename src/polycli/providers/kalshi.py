@@ -201,7 +201,8 @@ class KalshiProvider(BaseProvider):
                     volume_24h=float(getattr(m, "volume_24h", 0) or 0),
                     liquidity=float(getattr(m, "liquidity", 0) or 0),
                     end_date=str(getattr(m, "close_time", "")),
-                    provider="kalshi"
+                    provider="kalshi",
+                    extra_data={"subtitle": getattr(m, "subtitle", "")}
                 )
                 for m in markets
             ]
@@ -239,58 +240,71 @@ class KalshiProvider(BaseProvider):
             return []
 
     async def search(self, query: str) -> List[MarketData]:
-        """Search Kalshi markets via Events (filtering for tradeable markets)"""
-        events = await self.get_public_events(limit=100)
-        query_lo = query.lower()
-        results = []
+        """Search Kalshi markets with combined discovery (Direct Markets + Events)"""
+        if not self.api_instance: return []
         
-        # 1. Filter Events
-        matched_events = []
+        query_lo = query.lower()
+        results_map = {} # token_id -> MarketData to avoid duplicates
+        
+        # 1. Direct Market Discovery (Covers specific market titles/tickers)
+        # Fetch up to 500 open markets
+        direct_markets = await self.get_markets(limit=500)
+        for m in direct_markets:
+            if query_lo in m.title.lower() or query_lo in m.token_id.lower():
+                results_map[m.token_id] = m
+                
+        # 2. Event Discovery (Covers high-level topics)
+        events = await self.get_public_events(limit=100)
+        matched_event_tickers = []
         for e in events:
             title = e.get("title", "") or ""
-            ticker = e.get("ticker", "") or e.get("series_ticker", "") or ""
-            if query_lo in title.lower() or query_lo in ticker.lower():
-                matched_events.append(e)
+            # Kalshi API returns event_ticker or series_ticker depending on nested level
+            e_ticker = e.get("series_ticker") or e.get("event_ticker") or e.get("ticker", "")
+            if query_lo in title.lower() or query_lo in e_ticker.lower():
+                if e_ticker:
+                    matched_event_tickers.append(e_ticker)
         
-        if not matched_events:
-            return []
-            
-        # 2. Fetch specific markets for top matches
-        # fetching markets for ALL matches might be slow, limit to top 5
-        top_matches = matched_events[:5]
-        
-        for e in top_matches:
-            s_ticker = e.get("series_ticker")
-            if not s_ticker: continue
-            
+        # 3. Fetch Markets for Matched Events (Max top 5 topics to avoid spamming)
+        for ticker in matched_event_tickers[:5]:
             try:
                 loop = asyncio.get_event_loop()
-                # Use SDK to get markets for this series
+                # Check based on series_ticker
                 m_resp = await loop.run_in_executor(
                     None, 
-                    lambda: self.api_instance.get_markets(series_ticker=s_ticker, status="open")
+                    lambda: self.api_instance.get_markets(series_ticker=ticker, status="open")
                 )
-                markets = getattr(m_resp, "markets", [])
+                markets_raw = getattr(m_resp, "markets", [])
                 
-                for m in markets:
-                    # Map to MarketData
-                    results.append(MarketData(
-                        id=m.ticker,
-                        token_id=m.ticker, # Tradeable Ticker
-                        title=getattr(m, "title",  m.ticker),
-                        description=getattr(m, "subtitle", ""),
-                        price=(getattr(m, "yes_bid", 50) or 50) / 100.0,
-                        volume_24h=float(getattr(m, "volume_24h", 0) or 0),
-                        liquidity=float(getattr(m, "liquidity", 0) or 0),
-                        end_date=str(getattr(m, "close_time", "")),
-                        provider="kalshi",
-                        extra_data={"series_ticker": s_ticker}
-                    ))
-            except Exception as ex:
-                print(f"Error fetching markets for {s_ticker}: {ex}")
+                # If series_ticker failed, try as event_ticker (some markets use one or the other)
+                if not markets_raw:
+                    m_resp = await loop.run_in_executor(
+                        None, 
+                        lambda: self.api_instance.get_markets(event_ticker=ticker, status="open")
+                    )
+                    markets_raw = getattr(m_resp, "markets", [])
+
+                for m in markets_raw:
+                    if m.ticker not in results_map:
+                        results_map[m.ticker] = MarketData(
+                            id=m.ticker,
+                            token_id=m.ticker,
+                            title=getattr(m, "title",  m.ticker),
+                            description=getattr(m, "subtitle", ""),
+                            price=(getattr(m, "yes_bid", 50) or 50) / 100.0,
+                            volume_24h=float(getattr(m, "volume_24h", 0) or 0),
+                            liquidity=float(getattr(m, "liquidity", 0) or 0),
+                            end_date=str(getattr(m, "close_time", "")),
+                            provider="kalshi",
+                            extra_data={
+                                "series_ticker": ticker,
+                                "subtitle": getattr(m, "subtitle", "")
+                            }
+                        )
+            except Exception as e:
+                print(f"Search Drilldown Error for {ticker}: {e}")
                 continue
                 
-        return results
+        return list(results_map.values())
 
     async def get_orderbook(self, ticker: str) -> Dict:
         """
@@ -566,39 +580,64 @@ class KalshiProvider(BaseProvider):
         """Fetch OHLCV history"""
         if not self.api_instance: return []
         try:
-            # series_ticker usually needed? Or market ticker.
-            # Spec: /series/{series_ticker}/markets/{ticker}/candlesticks
-            # Just try generic market candlestick? endpoint exists /markets/{ticker}/candlesticks ?
-            # Re-checking openapi-index: Line 889: /series/{series_ticker}/markets/{ticker}/candlesticks
-            # Line 2440: /markets/candlesticks (might be generic?)
+            # Try to get series_ticker from ticker split, or maybe it's passed differently
+            # Usually it's first part before dash.
+            parts = ticker.split("-")
+            series_ticker = parts[0]
             
-            # We need series ticker. Usually first part of market ticker e.g. KXNBA
-            series_ticker = ticker.split("-")[0] 
+            # Map period to interval (minutes)
+            interval_map = {
+                "minute": 1,
+                "hour": 60,
+                "day": 1440
+            }
+            period_interval = interval_map.get(period, 60)
             
+            import time
+            limit = 100
+            now = int(time.time())
+            end_ts = now
+            start_ts = now - (limit * period_interval * 60) 
+
             loop = asyncio.get_event_loop()
             resp = await loop.run_in_executor(
                 None,
-                lambda: self.api_instance.get_market_candlesticks(
-                    series_ticker=series_ticker, 
-                    ticker=ticker,
-                    period_interval=60, # minutes? check sdk
-                    limit=100
+                lambda: self.api_instance.api_client.call_api(
+                    f"/series/{series_ticker}/markets/{ticker}/candlesticks", "GET",
+                    query_params=[
+                        ("period_interval", period_interval), 
+                        ("limit", limit),
+                        ("start_ts", start_ts),
+                        ("end_ts", end_ts)
+                    ],
+                    auth_settings=["bearerAuth"],
+                    _return_http_data_only=False,
+                    _preload_content=False
                 )
             )
             
-            # Mapping
-            candles = getattr(resp, "candlesticks", [])
-            return [
-                {
-                    "t": c.end_period_ts,
-                    "o": c.open/100.0,
-                    "h": c.high/100.0,
-                    "l": c.low/100.0,
-                    "c": c.close/100.0,
-                    "v": c.volume
-                }
-                for c in candles
-            ]
+            # Parse response
+            http_resp = resp[0]
+            if http_resp.status != 200: return []
+            
+            import json
+            data = json.loads(http_resp.data.decode('utf-8'))
+            candles = data.get("candlesticks", [])
+            
+            results = []
+            for c in candles:
+                try:
+                    results.append({
+                        "t": c.get("end_period_ts"),
+                        "o": (c.get("open") or 0)/100.0,
+                        "h": (c.get("high") or 0)/100.0,
+                        "l": (c.get("low") or 0)/100.0,
+                        "c": (c.get("close") or 0)/100.0,
+                        "v": c.get("volume") or 0
+                    })
+                except Exception:
+                    continue
+            return results
         except Exception as e:
             print(f"Candle Error: {e}")
             return []

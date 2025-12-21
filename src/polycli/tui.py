@@ -123,114 +123,126 @@ class MarketDetail(Vertical):
 
     def watch_market(self, market: Optional[MarketData]) -> None:
         if market:
-            self.query_one("#detail_title", Label).update(f"FOCUS: {market.title}")
+            extra = market.extra_data or {}
+            subtitle = extra.get("subtitle")
+            title = f"FOCUS: {market.title}"
+            if subtitle:
+                title += f" ({subtitle})"
+            self.query_one("#detail_title", Label).update(title)
             self.setup_market(market)
 
     @work(exclusive=True)
     async def setup_market(self, market: MarketData) -> None:
         """Fetch static data and handle WS subscription"""
         poly = PolyProvider()
+        kalshi = KalshiProvider()
+        
         try:
-            # 1. Determine if this is part of a larger event
-            slug = market.extra_data.get("slug") or market.extra_data.get("event_slug")
-            event_data = {}
-            if slug:
-                event_data = await poly.get_event_by_slug(slug)
+            multi_series = MultiLineSeries(title=market.title)
             
-            # 2. Identify all outcomes (markets) to plot
-            # If event_data found, use its markets. Otherwise fallback to single market.
-            markets_to_plot = []
-            if event_data and "markets" in event_data:
-                markets_to_plot = event_data["markets"]
-            else:
-                # Fallback structure
-                markets_to_plot = [{"id": market.token_id, "question": market.title, "clobTokenIds": market.extra_data.get("clob_token_ids")}]
-
-            self.app.notify(f"Fetching history for {len(markets_to_plot)} outcomes...", severity="information")
-
-            # 3. Parallel fetch of history for all outcomes
-            tasks = []
-            valid_markets = []
-            
-            for m in markets_to_plot:
-                # Extract CLOB Token ID
-                ctid = None
-                if "clobTokenIds" in m:
-                    raw = m["clobTokenIds"]
-                    try:
-                        # Sometimes it's a list, sometimes a string representation of a list
-                        if isinstance(raw, str):
-                            ctid = json.loads(raw)[0]
-                        elif isinstance(raw, list):
-                            ctid = raw[0]
-                    except:
-                        pass
-                
-                # If we couldn't parse it from event, try the fallback from the input market obj
-                if not ctid and m["id"] == market.token_id:
-                     raw = market.extra_data.get("clob_token_ids", "[]")
-                     ctid = json.loads(raw)[0] if json.loads(raw) else None
-
-                if ctid:
-                    tasks.append(poly.get_history(ctid))
-                    valid_markets.append(m)
-
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            # 4. Build MultiLineSeries
-            multi_series = MultiLineSeries(title=event_data.get("title", market.title))
-            colors = ["#2ecc71", "#e74c3c", "#3498db", "#f1c40f", "#9b59b6", "#e67e22"]
-            
-            for i, res in enumerate(results):
-                if isinstance(res, list) and res:
-                    m_info = valid_markets[i]
-                    name = m_info.get("groupItemTitle", m_info.get("question", "Unknown"))
-                    
-                    # Clean up name (e.g. remove "Winner - ")
+            if market.provider == "kalshi":
+                # 1. Fetch History for Kalshi
+                candles = await kalshi.get_candlesticks(market.token_id)
+                if candles:
                     series = PriceSeries(
-                        name=name,
-                        color=colors[i % len(colors)],
-                        points=[PricePoint(t=float(p["t"]), p=float(p["p"])) for p in res],
+                        name=market.title,
+                        color="#2ecc71",
+                        points=[PricePoint(t=float(c["t"]), p=float(c["c"])) for c in candles],
                         max_size=1000
                     )
                     multi_series.add_trace(series)
-
-            # 5. Launch Chart
-            metadata = {
-                "volume_24h": market.volume_24h,
-                "liquidity": market.liquidity,
-                "end_date": market.end_date,
-                "description": market.description,
-                "is_watched": market.token_id in self.app.watchlist,
-                "token_id": market.token_id # For reference
-            }
-            ChartManager().plot(multi_series, metadata=metadata)
-            
-            # 6. Setup Orderbook (for the SPECIFICALLY selected market only)
-            token_ids = json.loads(market.extra_data.get("clob_token_ids", "[]"))
-            if token_ids:
-                tid = token_ids[0]
-                b = await poly.get_orderbook(tid)
+                
+                # 2. Setup Orderbook Snapshot
+                b = await kalshi.get_orderbook(market.token_id)
                 snapshot = OrderBookSnapshot(
                     bids=b.get("bids", []),
                     asks=b.get("asks", [])
                 )
                 self.query_one("#depth_wall", OrderbookDepth).snapshot = snapshot
                 
-                # Live Sync
+                # 3. WS Subscription
                 if self.current_tid:
-                    await self.app.ws_client.unsubscribe(self.current_tid, self.on_ws_message)
-                    await self.app.kalshi_ws.subscribe(self.current_tid) # Re-sub to old? No, this logic is for Polymarket.
+                    await self.app.kalshi_ws.subscribe(self.current_tid) # Placeholder, might need unsubscribe
+                self.current_tid = market.token_id
+                await self.app.kalshi_ws.subscribe(market.token_id)
+                # Callbacks are usually added once in on_mount, but here we can ensure connectivity
+                self.app.kalshi_ws.add_callback("orderbook", self.on_k_ob)
+                self.app.kalshi_ws.add_callback("trade", self.on_k_trade)
+
+            else:
+                # Polymarket Logic (Existing)
+                slug = market.extra_data.get("slug") or market.extra_data.get("event_slug")
+                event_data = {}
+                if slug:
+                    event_data = await poly.get_event_by_slug(slug)
                 
-                self.current_tid = tid
-                
-                if market.provider == "kalshi":
-                     await self.app.kalshi_ws.subscribe(tid)
-                     # Callbacks are global, handled by app level distribution or we add specific here
-                     self.app.kalshi_ws.add_callback("orderbook", self.on_k_ob)
-                     self.app.kalshi_ws.add_callback("trade", self.on_k_trade)
+                markets_to_plot = []
+                if event_data and "markets" in event_data:
+                    markets_to_plot = event_data["markets"]
                 else:
-                     await self.app.ws_client.subscribe(tid, self.on_ws_message)
+                    markets_to_plot = [{"id": market.token_id, "question": market.title, "clobTokenIds": market.extra_data.get("clob_token_ids")}]
+
+                tasks = []
+                valid_markets = []
+                for m in markets_to_plot:
+                    ctid = None
+                    if "clobTokenIds" in m:
+                        raw = m["clobTokenIds"]
+                        try:
+                            if isinstance(raw, str): ctid = json.loads(raw)[0]
+                            elif isinstance(raw, list): ctid = raw[0]
+                        except: pass
+                    
+                    if not ctid and m["id"] == market.token_id:
+                         raw = market.extra_data.get("clob_token_ids", "[]")
+                         ctid = json.loads(raw)[0] if json.loads(raw) else None
+
+                    if ctid:
+                        tasks.append(poly.get_history(ctid))
+                        valid_markets.append(m)
+
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                colors = ["#2ecc71", "#e74c3c", "#3498db", "#f1c40f", "#9b59b6", "#e67e22"]
+                
+                for i, res in enumerate(results):
+                    if isinstance(res, list) and res:
+                        m_info = valid_markets[i]
+                        name = m_info.get("groupItemTitle", m_info.get("question", "Unknown"))
+                        series = PriceSeries(
+                            name=name,
+                            color=colors[i % len(colors)],
+                            points=[PricePoint(t=float(p["t"]), p=float(p["p"])) for p in res],
+                            max_size=1000
+                        )
+                        multi_series.add_trace(series)
+
+                # Setup Orderbook
+                token_ids = json.loads(market.extra_data.get("clob_token_ids", "[]"))
+                if token_ids:
+                    tid = token_ids[0]
+                    b = await poly.get_orderbook(tid)
+                    snapshot = OrderBookSnapshot(bids=b.get("bids", []), asks=b.get("asks", []))
+                    self.query_one("#depth_wall", OrderbookDepth).snapshot = snapshot
+                    
+                    if self.current_tid:
+                        await self.app.ws_client.unsubscribe(self.current_tid, self.on_ws_message)
+                    self.current_tid = tid
+                    await self.app.ws_client.subscribe(tid, self.on_ws_message)
+
+            # Draw Chart
+            extra = market.extra_data or {}
+            metadata = {
+                "volume_24h": market.volume_24h,
+                "liquidity": market.liquidity,
+                "end_date": market.end_date,
+                "description": market.description,
+                "is_watched": market.token_id in self.app.watchlist,
+                "token_id": market.token_id,
+                "subtitle": extra.get("subtitle"),
+                "event_ticker": extra.get("series_ticker") or extra.get("event_ticker"),
+                "provider": market.provider
+            }
+            ChartManager().plot(multi_series, metadata=metadata)
 
         except Exception as e:
             self.app.notify(f"Sync Error: {e}", severity="error")
@@ -252,11 +264,11 @@ class MarketDetail(Vertical):
 
     async def on_k_ob(self, data: Dict) -> None:
         """Handle Kalshi OB updates"""
-        # data is raw delta or snapshot
-        # For simplify, we assume we just trigger a refresh or apply delta
-        # Since applying delta is complex, we might just re-fetch snapshot occasionally or use delta logic if implemented.
-        # For TUI demo, let's just indicate activity or fetch snapshot if "snapshot" type.
-        pass
+        # data is a standardized full book: {'bids': [...], 'asks': [...]}
+        self.query_one("#depth_wall", OrderbookDepth).snapshot = OrderBookSnapshot(
+            bids=data.get("bids", []),
+            asks=data.get("asks", [])
+        )
 
     async def on_k_trade(self, trade: Dict) -> None:
          # Forward to Tape

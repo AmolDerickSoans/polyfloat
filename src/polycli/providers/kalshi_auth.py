@@ -59,3 +59,25 @@ class KalshiAuth:
             "WAL-Auth": f"{self.key_id} {timestamp} {b64_sig}",
             "Content-Type": "application/json"
         }
+
+    def get_ws_headers(self, method: str, path: str) -> Dict[str, str]:
+        """Generate headers for WS Handshake with Kalshi specific format"""
+        timestamp = str(int(time.time() * 1000))
+        msg = timestamp + method.upper() + path
+        message_bytes = msg.encode('utf-8')
+        
+        signature = self.private_key.sign(
+            message_bytes,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+        b64_sig = base64.b64encode(signature).decode('utf-8')
+
+        return {
+            "KALSHI-ACCESS-KEY": self.key_id,
+            "KALSHI-ACCESS-SIGNATURE": b64_sig,
+            "KALSHI-ACCESS-TIMESTAMP": timestamp
+        }
