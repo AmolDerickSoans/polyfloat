@@ -20,6 +20,7 @@ class KalshiProvider(BaseProvider):
         password = os.getenv("KALSHI_PASSWORD")
         key_id = os.getenv("KALSHI_KEY_ID")
         key_path = os.getenv("KALSHI_PRIVATE_KEY_PATH")
+        key_content = os.getenv("KALSHI_PRIVATE_KEY")
 
         if email and password:
             self.api_instance = kalshi_python.ApiInstance(
@@ -27,12 +28,24 @@ class KalshiProvider(BaseProvider):
                 password=password,
                 configuration=self.config
             )
-        elif key_id and key_path:
-            # Note: SDK support for RSA keys might vary by version
-            # Assuming standard ApiInstance init for now as per docs
+        elif key_id and (key_path or key_content):
+            # If key_content is provided, we use it directly if supported, 
+            # otherwise we might need a temp file helper.
+            # Official SDK typically wants a path for RSA keys.
+            actual_path = key_path
+            if key_content and not key_path:
+                # Basic check for key format
+                if "BEGIN RSA PRIVATE KEY" in key_content or "BEGIN PRIVATE KEY" in key_content:
+                    import tempfile
+                    # We create a temporary file that persists for the session
+                    self._tmp_key = tempfile.NamedTemporaryFile(mode='w', suffix='.pem', delete=False)
+                    self._tmp_key.write(key_content)
+                    self._tmp_key.close()
+                    actual_path = self._tmp_key.name
+
             self.api_instance = kalshi_python.ApiInstance(
                 key_id=key_id,
-                private_key_path=key_path,
+                private_key_path=actual_path,
                 configuration=self.config
             )
 

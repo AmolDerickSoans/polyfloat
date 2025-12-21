@@ -53,17 +53,42 @@ def ensure_credentials():
     # Re-load to ensure we have latest from file
     load_dotenv(env_file, override=True)
 
+    # We want to know what is EXPLICITLY in the .env file vs shell environment
+    from dotenv import dotenv_values
+
+    file_vars = dotenv_values(env_file)
+
+    def is_configured(key, skip_key):
+        # We trust the .env file primarily. 
+        # We only trust the shell's skip flag if there's no .env yet or it's implicitly skipped.
+        # But if the .env exists and is empty (after logout), we should probably re-ask.
+        in_file = file_vars.get(key)
+        skip_in_file = file_vars.get(skip_key) == "true"
+        # If it's in the file, or explicitly skipped in the file, it's configured.
+        if in_file or skip_in_file:
+            return True
+        # If it's not in the file, we only allow shell skip if the file doesn't have it either.
+        # Actually, let's keep it simple: if NOT in file and NOT skipped in file, 
+        # but is in shell environment, we will offer to adopt it later in the function.
+        # So here we return False to ensure it's added to 'missing'.
+        return False
+
     missing = []
-    if not os.getenv("POLY_PRIVATE_KEY") and os.getenv("SKIP_POLY") != "true":
+    if not is_configured("POLY_PRIVATE_KEY", "SKIP_POLY"):
         missing.append("Polymarket Private Key")
 
-    # Only ask for Gemini if it's not set AND not explicitly skipped
-    if not os.getenv("GOOGLE_API_KEY") and os.getenv("SKIP_GEMINI") != "true":
+    if not is_configured("GOOGLE_API_KEY", "SKIP_GEMINI"):
         missing.append("Google Gemini API Key")
 
-    # Check for Kalshi (either Email/Pass or Key/Secret)
-    has_kalshi = os.getenv("KALSHI_EMAIL") or os.getenv("KALSHI_KEY_ID")
-    if not has_kalshi and os.getenv("SKIP_KALSHI") != "true":
+    # Kalshi check
+    # We are configured if we have a full pair (Email+Pass OR ID+Path/Key) OR if we skipped
+    has_kalshi_file = (
+        (file_vars.get("KALSHI_EMAIL") and file_vars.get("KALSHI_PASSWORD")) or
+        (file_vars.get("KALSHI_KEY_ID") and (file_vars.get("KALSHI_PRIVATE_KEY_PATH") or file_vars.get("KALSHI_PRIVATE_KEY")))
+    )
+    
+    # If .env is missing any piece of a pair AND we haven't skipped via .env, it's missing
+    if not has_kalshi_file and file_vars.get("SKIP_KALSHI") != "true":
         missing.append("Kalshi Credentials")
 
     if missing:
@@ -75,94 +100,179 @@ def ensure_credentials():
         )
 
         if "Polymarket Private Key" in missing:
-            console.print("\n[bold cyan]Polymarket Integration[/bold cyan]")
-            console.print(
-                "Required for [italic]executing trades, managing orders, and viewing your portfolio on Polymarket.[/italic]"
-            )
-            if (
-                Prompt.ask(
-                    "Enable Polymarket trading?", choices=["y", "n"], default="y"
-                )
-                == "y"
-            ):
-                key = Prompt.ask("Enter your Polymarket Private Key", password=True)
-                if key:
-                    if not key.startswith("0x"):
-                        console.print(
-                            "[yellow]Warning: Poly key usually starts with 0x[/yellow]"
-                        )
-                    set_key(env_file, "POLY_PRIVATE_KEY", key)
-                    set_key(env_file, "SKIP_POLY", "false")
-                    os.environ["POLY_PRIVATE_KEY"] = key
-                    console.print("[green]✓ Polymarket Key saved[/green]")
-            else:
-                set_key(env_file, "SKIP_POLY", "true")
+            shell_key = os.environ.get("POLY_PRIVATE_KEY")
+            use_shell = False
+            if shell_key:
                 console.print(
-                    "[yellow]Skipping Polymarket setup. Trading disabled.[/yellow]"
+                    "\n[bold cyan]Polymarket Integration[/bold cyan] (Detected in Shell Environment)"
                 )
+                if (
+                    Prompt.ask(
+                        f"Use POLY_PRIVATE_KEY from shell? ({shell_key[:6]}...{shell_key[-4:]})",
+                        choices=["y", "n"],
+                        default="y",
+                    )
+                    == "y"
+                ):
+                    set_key(env_file, "POLY_PRIVATE_KEY", shell_key)
+                    set_key(env_file, "SKIP_POLY", "false")
+                    console.print("[green]✓ Key imported from shell[/green]")
+                    use_shell = True
+
+            if not use_shell:
+                console.print("\n[bold cyan]Polymarket Integration[/bold cyan]")
+                console.print(
+                    "Required for [italic]executing trades, managing orders, and viewing your portfolio on Polymarket.[/italic]"
+                )
+                if (
+                    Prompt.ask(
+                        "Enable Polymarket trading?", choices=["y", "n"], default="y"
+                    )
+                    == "y"
+                ):
+                    key = Prompt.ask("Enter your Polymarket Private Key", password=True)
+                    if key:
+                        if not key.startswith("0x"):
+                            console.print(
+                                "[yellow]Warning: Poly key usually starts with 0x[/yellow]"
+                            )
+                        set_key(env_file, "POLY_PRIVATE_KEY", key)
+                        set_key(env_file, "SKIP_POLY", "false")
+                        os.environ["POLY_PRIVATE_KEY"] = key
+                        console.print("[green]✓ Polymarket Key saved[/green]")
+                else:
+                    set_key(env_file, "SKIP_POLY", "true")
+                    console.print(
+                        "[yellow]Skipping Polymarket setup. Trading disabled.[/yellow]"
+                    )
 
         if "Google Gemini API Key" in missing:
-            console.print("\n[bold cyan]Gemini AI Features[/bold cyan]")
-            console.print(
-                "Required for [italic]autonomous trading agents, market sentiment analysis, and automated strategy planning.[/italic]"
-            )
-            if (
-                Prompt.ask(
-                    "Enable Gemini AI features?", choices=["y", "n"], default="n"
-                )
-                == "y"
-            ):
-                key = Prompt.ask("Enter your Google Gemini API Key", password=True)
-                if key:
-                    set_key(env_file, "GOOGLE_API_KEY", key)
-                    set_key(env_file, "SKIP_GEMINI", "false")
-                    os.environ["GOOGLE_API_KEY"] = key
-                    console.print("[green]✓ Google Gemini Key saved[/green]")
-            else:
-                set_key(env_file, "SKIP_GEMINI", "true")
+            shell_key = os.environ.get("GOOGLE_API_KEY")
+            use_shell = False
+            if shell_key:
                 console.print(
-                    "[yellow]Skipping Gemini setup. AI features disabled.[/yellow]"
+                    "\n[bold cyan]Gemini AI Features[/bold cyan] (Detected in Shell Environment)"
                 )
+                if (
+                    Prompt.ask(
+                        f"Use GOOGLE_API_KEY from shell? ({shell_key[:6]}...{shell_key[-4:]})",
+                        choices=["y", "n"],
+                        default="y",
+                    )
+                    == "y"
+                ):
+                    set_key(env_file, "GOOGLE_API_KEY", shell_key)
+                    set_key(env_file, "SKIP_GEMINI", "false")
+                    console.print("[green]✓ Key imported from shell[/green]")
+                    use_shell = True
+
+            if not use_shell:
+                console.print("\n[bold cyan]Gemini AI Features[/bold cyan]")
+                console.print(
+                    "Required for [italic]autonomous trading agents, market sentiment analysis, and automated strategy planning.[/italic]"
+                )
+                if (
+                    Prompt.ask(
+                        "Enable Gemini AI features?", choices=["y", "n"], default="n"
+                    )
+                    == "y"
+                ):
+                    key = Prompt.ask("Enter your Google Gemini API Key", password=True)
+                    if key:
+                        set_key(env_file, "GOOGLE_API_KEY", key)
+                        set_key(env_file, "SKIP_GEMINI", "false")
+                        os.environ["GOOGLE_API_KEY"] = key
+                        console.print("[green]✓ Google Gemini Key saved[/green]")
+                else:
+                    set_key(env_file, "SKIP_GEMINI", "true")
+                    console.print(
+                        "[yellow]Skipping Gemini setup. AI features disabled.[/yellow]"
+                    )
 
         if "Kalshi Credentials" in missing:
-            console.print("\n[bold cyan]Kalshi Integration[/bold cyan]")
-            console.print(
-                "Required for [italic]cross-platform arbitrage, trading on Kalshi, and unified portfolio management.[/italic]"
-            )
-            if (
-                Prompt.ask(
-                    "Enable Kalshi integration?", choices=["y", "n"], default="y"
-                )
-                == "y"
-            ):
-                auth_type = Prompt.ask(
-                    "Kalshi Auth Type", choices=["email", "apikey"], default="email"
-                )
-                if auth_type == "email":
-                    email = Prompt.ask("Enter Kalshi Email")
-                    password = Prompt.ask("Enter Kalshi Password", password=True)
-                    if email and password:
-                        set_key(env_file, "KALSHI_EMAIL", email)
-                        set_key(env_file, "KALSHI_PASSWORD", password)
-                        set_key(env_file, "SKIP_KALSHI", "false")
-                        os.environ["KALSHI_EMAIL"] = email
-                        os.environ["KALSHI_PASSWORD"] = password
-                        console.print("[green]✓ Kalshi Email/Pass saved[/green]")
-                else:
-                    key_id = Prompt.ask("Enter Kalshi Key ID")
-                    path = Prompt.ask("Enter path to Kalshi Private Key (.pem)")
-                    if key_id and path:
-                        set_key(env_file, "KALSHI_KEY_ID", key_id)
-                        set_key(env_file, "KALSHI_PRIVATE_KEY_PATH", path)
-                        set_key(env_file, "SKIP_KALSHI", "false")
-                        os.environ["KALSHI_KEY_ID"] = key_id
-                        os.environ["KALSHI_PRIVATE_KEY_PATH"] = path
-                        console.print("[green]✓ Kalshi API Key details saved[/green]")
-            else:
-                set_key(env_file, "SKIP_KALSHI", "true")
+            # Check for ANY shell vars related to Kalshi
+            s_email = os.environ.get("KALSHI_EMAIL")
+            s_pass = os.environ.get("KALSHI_PASSWORD")
+            s_key_id = os.environ.get("KALSHI_KEY_ID")
+            s_key_path = os.environ.get("KALSHI_PRIVATE_KEY_PATH")
+            s_key_content = os.environ.get("KALSHI_PRIVATE_KEY")
+            
+            use_shell = False
+
+            if s_email or s_pass or s_key_id or s_key_path or s_key_content:
                 console.print(
-                    "[yellow]Skipping Kalshi setup. Arbitrage will be limited.[/yellow]"
+                    "\n[bold cyan]Kalshi Integration[/bold cyan] (Detected in Shell Environment)"
                 )
+                if (
+                    Prompt.ask(
+                        "Use Kalshi credentials from shell?",
+                        choices=["y", "n"],
+                        default="y",
+                    )
+                    == "y"
+                ):
+                    if s_email: set_key(env_file, "KALSHI_EMAIL", s_email)
+                    if s_pass: set_key(env_file, "KALSHI_PASSWORD", s_pass)
+                    if s_key_id: set_key(env_file, "KALSHI_KEY_ID", s_key_id)
+                    if s_key_path: set_key(env_file, "KALSHI_PRIVATE_KEY_PATH", s_key_path)
+                    if s_key_content: set_key(env_file, "KALSHI_PRIVATE_KEY", s_key_content)
+                    
+                    # Re-check if we have a complete set now
+                    load_dotenv(env_file, override=True)
+                    f_vars = dotenv_values(env_file)
+                    has_complete = (
+                        (f_vars.get("KALSHI_EMAIL") and f_vars.get("KALSHI_PASSWORD")) or
+                        (f_vars.get("KALSHI_KEY_ID") and (f_vars.get("KALSHI_PRIVATE_KEY_PATH") or f_vars.get("KALSHI_PRIVATE_KEY")))
+                    )
+                    
+                    if has_complete:
+                        set_key(env_file, "SKIP_KALSHI", "false")
+                        console.print("[green]✓ Credentials imported from shell[/green]")
+                        use_shell = True
+                    else:
+                        console.print("[yellow]Partial credentials imported. Completing setup...[/yellow]")
+
+            if not use_shell:
+                console.print("\n[bold cyan]Kalshi Integration[/bold cyan]")
+                console.print(
+                    "Required for [italic]cross-platform arbitrage, trading on Kalshi, and unified portfolio management.[/italic]"
+                )
+                if (
+                    Prompt.ask(
+                        "Enable Kalshi integration?", choices=["y", "n"], default="y"
+                    )
+                    == "y"
+                ):
+                    auth_type = Prompt.ask(
+                        "Kalshi Auth Type", choices=["email", "apikey"], default="email"
+                    )
+                    if auth_type == "email":
+                        email = Prompt.ask("Enter Kalshi Email")
+                        password = Prompt.ask("Enter Kalshi Password", password=True)
+                        if email and password:
+                            set_key(env_file, "KALSHI_EMAIL", email)
+                            set_key(env_file, "KALSHI_PASSWORD", password)
+                            set_key(env_file, "SKIP_KALSHI", "false")
+                            os.environ["KALSHI_EMAIL"] = email
+                            os.environ["KALSHI_PASSWORD"] = password
+                            console.print("[green]✓ Kalshi Email/Pass saved[/green]")
+                    else:
+                        key_id = Prompt.ask("Enter Kalshi Key ID")
+                        path = Prompt.ask("Enter path to Kalshi Private Key (.pem)")
+                        if key_id and path:
+                            set_key(env_file, "KALSHI_KEY_ID", key_id)
+                            set_key(env_file, "KALSHI_PRIVATE_KEY_PATH", path)
+                            set_key(env_file, "SKIP_KALSHI", "false")
+                            os.environ["KALSHI_KEY_ID"] = key_id
+                            os.environ["KALSHI_PRIVATE_KEY_PATH"] = path
+                            console.print(
+                                "[green]✓ Kalshi API Key details saved[/green]"
+                            )
+                else:
+                    set_key(env_file, "SKIP_KALSHI", "true")
+                    console.print(
+                        "[yellow]Skipping Kalshi setup. Arbitrage will be limited.[/yellow]"
+                    )
 
         console.print()
 
@@ -221,6 +331,7 @@ def interactive_menu():
                 os.environ.pop("KALSHI_PASSWORD", None)
                 os.environ.pop("KALSHI_KEY_ID", None)
                 os.environ.pop("KALSHI_PRIVATE_KEY_PATH", None)
+                os.environ.pop("KALSHI_PRIVATE_KEY", None)
                 
                 # Also clear skip flags to ensure re-prompt on next run
                 os.environ.pop("SKIP_POLY", None)
