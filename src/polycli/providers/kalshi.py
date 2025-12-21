@@ -154,12 +154,13 @@ class KalshiProvider(BaseProvider):
             self.api_instance = None
 
     async def check_connection(self) -> bool:
-        """Verify authentication status"""
+        """Verify authentication status by fetching a small amount of public data"""
         if not self.api_instance:
             return False
         try:
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, self.api_instance.get_balance)
+            # get_balance often fails with 401 on some endpoints/keys, 
+            # use get_public_events manual call which is proven robust.
+            events = await self.get_public_events(limit=1)
             return True
         except Exception as e:
             print(f"Connection Check Error: {e}")
@@ -212,6 +213,7 @@ class KalshiProvider(BaseProvider):
         """Fetch high-level events (Series) from Kalshi V2 API"""
         if not self.api_instance: return []
         try:
+            # SDK doesn't always expose get_events, so we use safe manual call
             loop = asyncio.get_event_loop()
             resp = await loop.run_in_executor(
                 None,
@@ -223,6 +225,9 @@ class KalshiProvider(BaseProvider):
                     _preload_content=False
                 )
             )
+            # resp is (data, status, headers)
+            if not resp or len(resp) < 1: return []
+            
             http_resp = resp[0]
             if http_resp.status != 200: return []
             
@@ -234,28 +239,57 @@ class KalshiProvider(BaseProvider):
             return []
 
     async def search(self, query: str) -> List[MarketData]:
-        """Search Kalshi markets via Events (better titles)"""
-        events = await self.get_public_events(limit=250)
+        """Search Kalshi markets via Events (filtering for tradeable markets)"""
+        events = await self.get_public_events(limit=100)
         query_lo = query.lower()
         results = []
         
+        # 1. Filter Events
+        matched_events = []
         for e in events:
-            # Check Title or Ticker
-            title = e.get("title", "")
-            ticker = e.get("ticker", "") or e.get("series_ticker", "")
-            
+            title = e.get("title", "") or ""
+            ticker = e.get("ticker", "") or e.get("series_ticker", "") or ""
             if query_lo in title.lower() or query_lo in ticker.lower():
-                results.append(MarketData(
-                    id=ticker,
-                    token_id=ticker,
-                    title=title,
-                    description=e.get("subtitle", ""),
-                    price=0.50, # Placeholder for Event
-                    volume_24h=0.0,
-                    liquidity=0.0,
-                    provider="kalshi",
-                    extra_data={"is_event": True, "series_ticker": e.get("series_ticker")}
-                ))
+                matched_events.append(e)
+        
+        if not matched_events:
+            return []
+            
+        # 2. Fetch specific markets for top matches
+        # fetching markets for ALL matches might be slow, limit to top 5
+        top_matches = matched_events[:5]
+        
+        for e in top_matches:
+            s_ticker = e.get("series_ticker")
+            if not s_ticker: continue
+            
+            try:
+                loop = asyncio.get_event_loop()
+                # Use SDK to get markets for this series
+                m_resp = await loop.run_in_executor(
+                    None, 
+                    lambda: self.api_instance.get_markets(series_ticker=s_ticker, status="open")
+                )
+                markets = getattr(m_resp, "markets", [])
+                
+                for m in markets:
+                    # Map to MarketData
+                    results.append(MarketData(
+                        id=m.ticker,
+                        token_id=m.ticker, # Tradeable Ticker
+                        title=getattr(m, "title",  m.ticker),
+                        description=getattr(m, "subtitle", ""),
+                        price=(getattr(m, "yes_bid", 50) or 50) / 100.0,
+                        volume_24h=float(getattr(m, "volume_24h", 0) or 0),
+                        liquidity=float(getattr(m, "liquidity", 0) or 0),
+                        end_date=str(getattr(m, "close_time", "")),
+                        provider="kalshi",
+                        extra_data={"series_ticker": s_ticker}
+                    ))
+            except Exception as ex:
+                print(f"Error fetching markets for {s_ticker}: {ex}")
+                continue
+                
         return results
 
     async def get_orderbook(self, ticker: str) -> Dict:

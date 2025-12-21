@@ -274,6 +274,28 @@ def ensure_credentials():
                         "[yellow]Skipping Kalshi setup. Arbitrage will be limited.[/yellow]"
                     )
 
+            # Verification Step
+            if not use_shell and os.environ.get("SKIP_KALSHI") != "true":
+                 console.print("\n[dim]Verifying Kalshi credentials...[/dim]")
+                 try:
+                     from polycli.providers.kalshi import KalshiProvider
+                     import asyncio
+                     
+                     # Force reload of env vars in provider if needed, though usually it reads os.environ
+                     prov = KalshiProvider()
+                     if not prov.api_instance:
+                          console.print("[bold red] Authentication Failed: Unable to initialize API client. Check your keys/password.[/bold red]")
+                          # We don't block exit, but user knows.
+                     else:
+                          # Run check
+                          is_valid = asyncio.run(prov.check_connection())
+                          if is_valid:
+                              console.print("[bold green]✓ Verified: Connected to Kalshi[/bold green]")
+                          else:
+                              console.print("[bold red]⚠ Warning: API Client initialized but check_connection failed.[/bold red]")
+                 except Exception as e:
+                     console.print(f"[red]Verification Error: {e}[/red]")
+
         console.print()
 
 

@@ -1,5 +1,8 @@
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, DataTable, Static, Label, Input, Button, ContentSwitcher, RadioSet, RadioButton
+from dotenv import load_dotenv
+
+load_dotenv()
 from textual.containers import Container, Horizontal, Vertical, Grid
 from textual.reactive import reactive
 from textual import work, on
@@ -543,17 +546,7 @@ class DashboardApp(App):
             
             # Kalshi
             if self.selected_provider in ["kalshi", "all"]:
-                # Kalshi Python SDK search is weak? get_markets returns all active.
-                # Use basic filtering if no direct search endpoint, 
-                # or check if we implemented search() in KalshiProvider (we didn't yet).
-                # BaseProvider has generic search? No.
-                # But CLI search uses generic search which calls search(). 
-                # We need search() in KalshiProvider. Let's assume we update it or implement simplistic filter.
-                # Actually, wait, KalshiProvider doesn't have search() yet in my code.
-                # I should add it or use get_markets and filter.
-                # Assuming get_markets is fast enough or use cache.
-                pass 
-                # For now, let's just create a coroutine that calls get_markets and filters
+                # Use updated KalshiProvider search which filters Events and fetches matching markets
                 tasks.append(KalshiProvider().search(query))
 
             # Gather
