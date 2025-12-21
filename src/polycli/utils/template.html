@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; background-color: #0d1117; overflow: hidden; font-family: 'Consolas', monospace; }
+        #chart { width: 100vw; height: 100vh; }
+        .toolbar {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+        }
+        .btn {
+            background: #161b22;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        .btn:hover { background: #30363d; border-color: #58a6ff; }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <button class="btn" onclick="downloadCSV()">CSV</button>
+        <button class="btn" onclick="downloadJSON()">JSON</button>
+    </div>
+    <div id="chart"></div>
+    <script>
+        // Data injected from Python
+        var injected_data = {{DATA}};
+
+        var layout = {
+            plot_bgcolor: "#0d1117",
+            paper_bgcolor: "#0d1117",
+            font: { color: "#c9d1d9", family: "Consolas, monospace" },
+            margin: { t: 50, r: 20, b: 40, l: 60 },
+            xaxis: { 
+                gridcolor: "#30363d", 
+                zerolinecolor: "#30363d",
+                showspikes: true,
+                spikethickness: 1,
+                spikedash: "dot",
+                spikecolor: "#58a6ff",
+                rangeselector: {
+                    buttons: [
+                        {count: 1, label: '1D', step: 'day', stepmode: 'backward'},
+                        {count: 7, label: '7D', step: 'day', stepmode: 'backward'},
+                        {count: 1, label: '1M', step: 'month', stepmode: 'backward'},
+                        {step: 'all', label: 'ALL'}
+                    ],
+                    bgcolor: '#161b22',
+                    activecolor: '#30363d',
+                    font: {color: '#c9d1d9'}
+                }
+            },
+            yaxis: { 
+                gridcolor: "#30363d", 
+                zerolinecolor: "#30363d",
+                showspikes: true,
+                spikethickness: 1,
+                spikedash: "dot",
+                spikecolor: "#58a6ff",
+                tickprefix: "$",
+                range: [0, 1]
+            },
+            hovermode: "x unified",
+            dragmode: "pan",
+            legend: {
+                orientation: "h",
+                yanchor: "bottom",
+                y: 1.02,
+                xanchor: "right",
+                x: 1
+            }
+        };
+        
+        var config = {
+            responsive: true,
+            displayModeBar: false,
+            scrollZoom: true
+        };
+
+        function render() {
+            try {
+                var data = injected_data;
+                var traces = [];
+                
+                // Handle new multi-trace format or fallback
+                if (data.traces) {
+                    data.traces.forEach(t => {
+                        traces.push({
+                            x: t.x,
+                            y: t.y,
+                            name: t.name,
+                            type: 'scatter',
+                            mode: 'lines',
+                            line: { color: t.color, width: 2 }
+                        });
+                    });
+                } else if (data.x && data.y) {
+                    // Fallback for single line
+                    traces.push({
+                        x: data.x,
+                        y: data.y,
+                        type: 'scatter',
+                        mode: 'lines',
+                        line: { color: '#00f2ff', width: 2 },
+                        fill: 'tozeroy',
+                        fillcolor: 'rgba(0, 242, 255, 0.1)'
+                    });
+                }
+
+                var currentLayout = JSON.parse(JSON.stringify(layout));
+                currentLayout.title = data.title || "Market Price";
+                
+                Plotly.newPlot('chart', traces, currentLayout, config);
+            } catch (e) {
+                document.body.innerHTML += '<div style="color:red">' + e + '</div>';
+            }
+        }
+
+        function downloadJSON() {
+            var dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(injected_data));
+            var anchor = document.createElement('a');
+            anchor.setAttribute("href", dataStr);
+            anchor.setAttribute("download", "market_data.json");
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+        }
+
+        function downloadCSV() {
+            var csvContent = "data:text/csv;charset=utf-8,Date,Price\n";
+            if (injected_data.traces && injected_data.traces.length > 0) {
+                 var t = injected_data.traces[0];
+                 for (var i=0; i < t.x.length; i++) {
+                     csvContent += t.x[i] + "," + t.y[i] + "\n";
+                 }
+            }
+            var anchor = document.createElement('a');
+            anchor.setAttribute("href", csvContent);
+            anchor.setAttribute("download", "market_data.csv");
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+        }
+
+        render();
+    </script>
+</body>
+</html>

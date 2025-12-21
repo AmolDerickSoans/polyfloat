@@ -8,6 +8,8 @@ class PricePoint:
 
 @dataclass
 class PriceSeries:
+    name: str  # e.g. "Trump", "Yes", "No"
+    color: str # Hex code
     points: List[PricePoint] = field(default_factory=list)
     max_size: int = 1000
 
@@ -21,6 +23,14 @@ class PriceSeries:
     
     def timestamps(self) -> List[float]:
         return [pt.t for pt in self.points]
+
+@dataclass
+class MultiLineSeries:
+    title: str
+    traces: List[PriceSeries] = field(default_factory=list)
+    
+    def add_trace(self, trace: PriceSeries) -> None:
+        self.traces.append(trace)
 
 @dataclass
 class OrderBookSnapshot:

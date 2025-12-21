@@ -93,7 +93,11 @@ class PolyProvider(BaseProvider):
                         liquidity=float(m.get("liquidity", 0.0)),
                         end_date=m.get("endDateIso"),
                         provider="polymarket",
-                        extra_data={"clob_token_ids": token_ids}
+                        extra_data={
+                            "clob_token_ids": token_ids,
+                            "slug": m.get("slug"),
+                            "event_slug": m.get("slug") # Gamma "market" endpoint often returns the market slug which is tied to the event
+                        }
                     ))
                     
                 return markets
@@ -153,6 +157,18 @@ class PolyProvider(BaseProvider):
             except Exception as e:
                 logger.error("Error fetching price history", token_id=token_id, error=str(e))
                 return []
+
+    async def get_event_by_slug(self, slug: str) -> Dict[str, Any]:
+        """Fetch full event details including sibling markets"""
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(f"{self.gamma_host}/events", params={"slug": slug})
+                response.raise_for_status()
+                events = response.json()
+                return events[0] if events else {}
+            except Exception as e:
+                logger.error("Error fetching event by slug", slug=slug, error=str(e))
+                return {}
 
     async def get_positions(self) -> List[Dict]:
         """Fetch user positions from Data API"""

@@ -11,7 +11,8 @@ import plotext as plt
 from polycli.providers.polymarket import PolyProvider
 from polycli.providers.polymarket_ws import PolymarketWebSocket
 from polycli.providers.base import MarketData, OrderArgs, OrderSide, OrderType
-from polycli.models import PriceSeries, PricePoint, OrderBookSnapshot
+from polycli.models import PriceSeries, PricePoint, OrderBookSnapshot, MultiLineSeries
+from polycli.utils.launcher import ChartManager
 from rich.panel import Panel
 from rich.table import Table
 from rich.bar import Bar
@@ -69,43 +70,6 @@ class QuickOrderModal(ModalScreen):
     @on(Button.Pressed, "#cancel")
     def cancel(self) -> None: self.dismiss(None)
 
-class PriceChart(Static):
-    """Widget to display historical price data"""
-    series: reactive[Optional[PriceSeries]] = reactive(None)
-
-    def render_chart(self) -> None:
-        if not self.series or not self.series.points:
-            self.update("No data available")
-            return
-        
-        # Guard against zero/uninitialized size
-        w, h = self.size.width, self.size.height
-        if w <= 4 or h <= 4:
-            self.update(f"Chart space too small: {w}x{h}")
-            return
-
-        plt.clf()
-        plt.theme("dark")
-        # Use prices from the model
-        prices = self.series.prices()
-        
-        if not prices:
-            self.update("No price data in history")
-            return
-            
-        plt.plot(prices, color="cyan")
-        plt.plotsize(w - 2, h - 2)
-        # Force ANSI rendering for Textual/Rich correctly
-        plot_str = plt.build()
-        if not plot_str.strip():
-            self.update(f"Plot builder returned empty string for {len(prices)} points")
-            return
-            
-        self.update(Text.from_ansi(plot_str))
-
-    def watch_series(self) -> None: self.render_chart()
-    def on_resize(self, event) -> None: self.render_chart()
-
 class OrderbookDepth(Static):
     """Widget to display orderbook depth"""
     snapshot: reactive[Optional[OrderBookSnapshot]] = reactive(None)
@@ -149,7 +113,6 @@ class MarketDetail(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Label("Select a market", id="detail_title")
-        yield PriceChart(id="price_chart")
         yield OrderbookDepth(id="depth_wall")
 
     def watch_market(self, market: Optional[MarketData]) -> None:
@@ -162,36 +125,102 @@ class MarketDetail(Vertical):
         """Fetch static data and handle WS subscription"""
         poly = PolyProvider()
         try:
+            # 1. Determine if this is part of a larger event
+            slug = market.extra_data.get("slug") or market.extra_data.get("event_slug")
+            event_data = {}
+            if slug:
+                event_data = await poly.get_event_by_slug(slug)
+            
+            # 2. Identify all outcomes (markets) to plot
+            # If event_data found, use its markets. Otherwise fallback to single market.
+            markets_to_plot = []
+            if event_data and "markets" in event_data:
+                markets_to_plot = event_data["markets"]
+            else:
+                # Fallback structure
+                markets_to_plot = [{"id": market.token_id, "question": market.title, "clobTokenIds": market.extra_data.get("clob_token_ids")}]
+
+            self.app.notify(f"Fetching history for {len(markets_to_plot)} outcomes...", severity="information")
+
+            # 3. Parallel fetch of history for all outcomes
+            tasks = []
+            valid_markets = []
+            
+            for m in markets_to_plot:
+                # Extract CLOB Token ID
+                ctid = None
+                if "clobTokenIds" in m:
+                    raw = m["clobTokenIds"]
+                    try:
+                        # Sometimes it's a list, sometimes a string representation of a list
+                        if isinstance(raw, str):
+                            ctid = json.loads(raw)[0]
+                        elif isinstance(raw, list):
+                            ctid = raw[0]
+                    except:
+                        pass
+                
+                # If we couldn't parse it from event, try the fallback from the input market obj
+                if not ctid and m["id"] == market.token_id:
+                     raw = market.extra_data.get("clob_token_ids", "[]")
+                     ctid = json.loads(raw)[0] if json.loads(raw) else None
+
+                if ctid:
+                    tasks.append(poly.get_history(ctid))
+                    valid_markets.append(m)
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # 4. Build MultiLineSeries
+            multi_series = MultiLineSeries(title=event_data.get("title", market.title))
+            colors = ["#2ecc71", "#e74c3c", "#3498db", "#f1c40f", "#9b59b6", "#e67e22"]
+            
+            for i, res in enumerate(results):
+                if isinstance(res, list) and res:
+                    m_info = valid_markets[i]
+                    name = m_info.get("groupItemTitle", m_info.get("question", "Unknown"))
+                    
+                    # Clean up name (e.g. remove "Winner - ")
+                    series = PriceSeries(
+                        name=name,
+                        color=colors[i % len(colors)],
+                        points=[PricePoint(t=float(p["t"]), p=float(p["p"])) for p in res],
+                        max_size=1000
+                    )
+                    multi_series.add_trace(series)
+
+            # 5. Launch Chart
+            metadata = {
+                "volume_24h": market.volume_24h,
+                "liquidity": market.liquidity,
+                "end_date": market.end_date,
+                "description": market.description,
+                "is_watched": market.token_id in self.watchlist,
+                "token_id": market.token_id # For reference
+            }
+            ChartManager().plot(multi_series, metadata=metadata)
+            
+            # 6. Setup Orderbook (for the SPECIFICALLY selected market only)
             token_ids = json.loads(market.extra_data.get("clob_token_ids", "[]"))
             if token_ids:
                 tid = token_ids[0]
-                # 1. Static fetch (REST)
-                h = await poly.get_history(tid)
-                self.app.notify(f"Fetched {len(h)} history points", severity="information")
-                
-                # Create PriceSeries model
-                series = PriceSeries(
-                    points=[PricePoint(t=float(p["t"]), p=float(p["p"])) for p in h],
-                    max_size=1000
-                )
-                self.query_one("#price_chart", PriceChart).series = series
-                
                 b = await poly.get_orderbook(tid)
-                # Create OrderBookSnapshot model
                 snapshot = OrderBookSnapshot(
                     bids=b.get("bids", []),
                     asks=b.get("asks", [])
                 )
                 self.query_one("#depth_wall", OrderbookDepth).snapshot = snapshot
                 
-                # 2. Live Synchronization (WebSocket)
+                # Live Sync
                 if self.current_tid:
                     await self.app.ws_client.unsubscribe(self.current_tid, self.on_ws_message)
-                
                 self.current_tid = tid
                 await self.app.ws_client.subscribe(tid, self.on_ws_message)
+
         except Exception as e:
             self.app.notify(f"Sync Error: {e}", severity="error")
+            import traceback
+            traceback.print_exc()
 
     def on_ws_message(self, data: Dict[str, Any]) -> None:
         """Callback for real-time updates"""
@@ -202,11 +231,9 @@ class MarketDetail(Vertical):
             )
             
         if "price" in data:
-             p = float(data["price"])
-             chart = self.query_one("#price_chart", PriceChart)
-             if chart.series:
-                 chart.series.append(p, asyncio.get_event_loop().time())
-                 chart.render_chart()
+             # Real-time chart updates would go here via ChartManager().update()
+             # For now, we rely on the initial load as PyWry update logic is complex
+             pass
 
 class DashboardApp(App):
     """PolyCLI Bloomberg Terminal"""
@@ -226,6 +253,7 @@ class DashboardApp(App):
     DataTable { height: 1fr; background: #0d1117; border: none; }
     PriceChart { height: 30; border: solid #30363d; margin: 1 0; }
     OrderbookDepth { height: 20; border: solid #30363d; }
+    .info_box { margin: 1; padding: 1; border: tall #58a6ff; text-align: center; }
     #modal_dialog { background: #161b22; border: solid cyan; padding: 2; width: 40; height: 15; align: center middle; }
     #modal_dialog .item { height: 3; margin-top: 1; }
     #search_box { margin: 1; border: solid #30363d; border-title-align: left; }
