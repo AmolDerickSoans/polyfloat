@@ -221,9 +221,17 @@ def interactive_menu():
                 os.environ.pop("KALSHI_PASSWORD", None)
                 os.environ.pop("KALSHI_KEY_ID", None)
                 os.environ.pop("KALSHI_PRIVATE_KEY_PATH", None)
+                
+                # Also clear skip flags to ensure re-prompt on next run
+                os.environ.pop("SKIP_POLY", None)
+                os.environ.pop("SKIP_GEMINI", None)
+                os.environ.pop("SKIP_KALSHI", None)
+
                 console.print(
                     "[bold red]All keys removed. You are logged out.[/bold red]"
                 )
+                console.print("[yellow]Exiting PolyFloat...[/yellow]")
+                sys.exit(0)
         elif choice in ["5", "/exit", "/quit", "q"]:
             console.print("Goodbye!")
             sys.exit(0)

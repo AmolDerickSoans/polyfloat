@@ -1,5 +1,5 @@
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, DataTable, Static, Label, Input, Button
+from textual.widgets import Header, Footer, DataTable, Static, Label, Input, Button, ContentSwitcher
 from textual.containers import Container, Horizontal, Vertical, Grid
 from textual.reactive import reactive
 from textual import work, on
@@ -13,6 +13,7 @@ from polycli.providers.polymarket_ws import PolymarketWebSocket
 from polycli.providers.base import MarketData, OrderArgs, OrderSide, OrderType
 from polycli.models import PriceSeries, PricePoint, OrderBookSnapshot, MultiLineSeries
 from polycli.utils.launcher import ChartManager
+from polycli.arbitrage.tui_widget import ArbitrageScanner
 from rich.panel import Panel
 from rich.table import Table
 from rich.bar import Bar
@@ -258,6 +259,13 @@ class DashboardApp(App):
     #modal_dialog { background: #161b22; border: solid cyan; padding: 2; width: 40; height: 15; align: center middle; }
     #modal_dialog .item { height: 3; margin-top: 1; }
     #search_box { margin: 1; border: solid #30363d; border-title-align: left; }
+    
+    /* Arbitrage Styles */
+    ArbitrageScanner { height: 100%; }
+    #arb_header { background: #161b22; color: #58a6ff; text-align: center; text-style: bold; }
+    #arb_controls { height: 3; margin: 1; align: center middle; }
+    #arb_controls Button { margin: 0 1; }
+    #arb_table { height: 1fr; border: solid #30363d; }
     """
     
     BINDINGS = [
@@ -266,20 +274,28 @@ class DashboardApp(App):
         ("b", "buy", "Buy"),
         ("s", "sell", "Sell"),
         ("w", "toggle_watchlist", "Watchlist"),
-        ("/", "focus_search", "Search")
+        ("/", "focus_search", "Search"),
+        ("a", "show_arb", "Arbitrage"),
+        ("d", "show_dash", "Dashboard"),
     ]
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Container(id="main_grid"):
-            with Vertical(id="market_sidebar"):
-                yield Label("MARKETS", classes="title")
-                yield Input(placeholder="Search markets...", id="search_box")
-                yield DataTable(id="market_list")
-                yield Label("WATCHLIST [Hotkey: 'w']", classes="title")
-                yield DataTable(id="watch_list")
-            with Vertical(id="detail_panel"):
-                yield MarketDetail(id="market_focus")
+        with ContentSwitcher(initial="dashboard", id="switcher"):
+            with Container(id="dashboard"):
+                 with Container(id="main_grid"):
+                    with Vertical(id="market_sidebar"):
+                        yield Label("MARKETS", classes="title")
+                        yield Input(placeholder="Search markets...", id="search_box")
+                        yield DataTable(id="market_list")
+                        yield Label("WATCHLIST [Hotkey: 'w']", classes="title")
+                        yield DataTable(id="watch_list")
+                    with Vertical(id="detail_panel"):
+                        yield MarketDetail(id="market_focus")
+            
+            with Container(id="arbitrage"):
+                 yield ArbitrageScanner()
+        
         yield NewsTicker()
         yield Footer()
 
@@ -291,6 +307,14 @@ class DashboardApp(App):
         wlist = self.query_one("#watch_list", DataTable); wlist.cursor_type = "row"; wlist.add_columns("Market", "Px")
         self.update_markets()
 
+    def action_show_arb(self) -> None:
+        self.query_one("#switcher", ContentSwitcher).current = "arbitrage"
+        self.notify("Switched to Arbitrage Scanner")
+        
+    def action_show_dash(self) -> None:
+        self.query_one("#switcher", ContentSwitcher).current = "dashboard"
+        self.notify("Switched to Dashboard")
+    
     async def on_unmount(self) -> None:
         if hasattr(self, "ws_client"):
             await self.ws_client.stop()
@@ -322,7 +346,6 @@ class DashboardApp(App):
                 self._search_timer.cancel()
             self.filter_markets("") # Revert to default view
             return
-
         self.debounced_search(query)
 
     @work(exclusive=True)

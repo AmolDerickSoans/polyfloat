@@ -170,6 +170,55 @@ class PolyProvider(BaseProvider):
                 logger.error("Error fetching event by slug", slug=slug, error=str(e))
                 return {}
 
+    async def get_market_by_slug(self, slug: str) -> Optional[MarketData]:
+        """Fetch a specific market by its slug"""
+        async with httpx.AsyncClient() as client:
+            try:
+                # First try direct exact match
+                response = await client.get(f"{self.gamma_host}/markets", params={"slug": slug})
+                response.raise_for_status()
+                markets = response.json()
+                
+                if not markets:
+                    return None
+                    
+                m = markets[0]
+                
+                # Parse helper (similar to search)
+                prices_raw = m.get("outcomePrices", "[]")
+                if isinstance(prices_raw, str):
+                    try: prices = json.loads(prices_raw)
+                    except: prices = []
+                else: prices = prices_raw
+                price = float(prices[0]) if (prices and len(prices) > 0) else 0.5
+                
+                ctid = m.get("clobTokenIds", "[]")
+                if not isinstance(ctid, str):
+                    ctid = json.dumps(ctid)
+                    
+                def safe_float(val):
+                    try: return float(val) if val is not None else 0.0
+                    except: return 0.0
+
+                return MarketData(
+                    token_id=m.get("conditionId") or m.get("id"),
+                    title=m.get("question", "Unknown"),
+                    description=m.get("description"),
+                    price=price,
+                    volume_24h=safe_float(m.get("volume24hr")),
+                    liquidity=safe_float(m.get("liquidity")),
+                    end_date=m.get("endDateIso"),
+                    provider="polymarket",
+                    extra_data={
+                        "clob_token_ids": ctid,
+                        "slug": m.get("slug"),
+                    }
+                )
+
+            except Exception as e:
+                logger.error("Error fetching market by slug", slug=slug, error=str(e))
+                return None
+
     async def search(self, query: str) -> List[MarketData]:
         """Search for markets and events using public-search"""
         async with httpx.AsyncClient(timeout=10.0) as client:

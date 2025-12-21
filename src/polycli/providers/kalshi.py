@@ -83,10 +83,21 @@ class KalshiProvider(BaseProvider):
             return {}
         try:
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
+            resp = await loop.run_in_executor(
                 None, 
                 lambda: self.api_instance.get_market_orderbook(ticker)
             )
+            if hasattr(resp, "to_dict"):
+                return resp.to_dict()
+            
+            # Manual fallback
+            obs = getattr(resp, "order_book", None)
+            if obs:
+                return {
+                    "yes": getattr(obs, "yes", []),
+                    "no": getattr(obs, "no", [])
+                }
+            return {}
         except Exception:
             return {}
 
@@ -113,3 +124,17 @@ class KalshiProvider(BaseProvider):
 
     async def get_positions(self) -> List[Dict]:
         return []
+
+    async def get_events(self, series_ticker: str, limit: int = 50) -> List[Dict]:
+        """Fetch events for a series (e.g., KXNBA)"""
+        if not self.api_instance:
+            return []
+        try:
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None, 
+                lambda: self.api_instance.get_events(series_ticker=series_ticker, limit=limit, status="open")
+            )
+            return getattr(response, "events", [])
+        except Exception:
+            return []
