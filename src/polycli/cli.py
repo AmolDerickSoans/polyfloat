@@ -294,6 +294,33 @@ def search_markets(
     console.print(
         f"Searching for '[bold yellow]{query}[/bold yellow]' on [bold green]{provider}[/bold green]..."
     )
+    
+    if provider.lower() == "polymarket":
+        poly = PolyProvider()
+        try:
+            results = asyncio.run(poly.search(query))
+            if not results:
+                console.print("[red]No results found.[/red]")
+                return
+            
+            table = Table(title=f"Search Results: {query}")
+            table.add_column("TID", style="dim")
+            table.add_column("Market", style="cyan")
+            table.add_column("Price", justify="right")
+            table.add_column("Volume", justify="right")
+            
+            for m in results:
+                display_title = m.title[:60] + ("..." if len(m.title) > 60 else "")
+                table.add_row(
+                    m.token_id[:8],
+                    display_title,
+                    f"${m.price:.2f}",
+                    f"${m.volume_24h/1000:.1f}k"
+                )
+            
+            console.print(table)
+        except Exception as e:
+            console.print(f"[red]Search Error: {e}[/red]")
 
 
 arb_app = typer.Typer(help="Arbitrage scanning commands")

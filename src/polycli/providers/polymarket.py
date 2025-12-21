@@ -170,6 +170,75 @@ class PolyProvider(BaseProvider):
                 logger.error("Error fetching event by slug", slug=slug, error=str(e))
                 return {}
 
+    async def search(self, query: str) -> List[MarketData]:
+        """Search for markets and events using public-search"""
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                # The correct parameter is 'q'. 'active' is not supported on this endpoint.
+                params = {"q": query}
+                response = await client.get(f"{self.gamma_host}/public-search", params=params)
+                response.raise_for_status()
+                data = response.json()
+                
+                results = []
+                
+                # Helper to parse market into MarketData
+                def parse_market(m, event_slug=None):
+                    if not m: return None
+                    
+                    prices_raw = m.get("outcomePrices", "[]")
+                    if isinstance(prices_raw, str):
+                        try: prices = json.loads(prices_raw)
+                        except: prices = []
+                    else: prices = prices_raw
+                    price = float(prices[0]) if (prices and len(prices) > 0) else 0.5
+                    
+                    # Ensure clob_token_ids is a JSON string
+                    ctid = m.get("clobTokenIds", "[]")
+                    if not isinstance(ctid, str):
+                        ctid = json.dumps(ctid)
+
+                    def safe_float(val):
+                        try: return float(val) if val is not None else 0.0
+                        except: return 0.0
+
+                    return MarketData(
+                        token_id=m.get("conditionId") or m.get("id"),
+                        title=m.get("question", "Unknown"),
+                        description=m.get("description"),
+                        price=price,
+                        volume_24h=safe_float(m.get("volume24hr")),
+                        liquidity=safe_float(m.get("liquidity")),
+                        end_date=m.get("endDateIso"),
+                        provider="polymarket",
+                        extra_data={
+                            "clob_token_ids": ctid,
+                            "slug": m.get("slug"),
+                            "event_slug": event_slug or m.get("slug") 
+                        }
+                    )
+
+                # 1. Process direct Market results
+                for m in (data.get("markets") or []):
+                    parsed = parse_market(m)
+                    if parsed: results.append(parsed)
+                
+                # 2. Process Markets inside Event results
+                for e in (data.get("events") or []):
+                    e_slug = e.get("slug")
+                    for m in (e.get("markets") or []):
+                        mid = m.get("conditionId") or m.get("id")
+                        # Avoid duplicates
+                        if not any(r.token_id == mid for r in results):
+                            parsed = parse_market(m, event_slug=e_slug)
+                            if parsed: results.append(parsed)
+                
+                logger.info("Search results", query=query, count=len(results))
+                return results
+            except Exception as e:
+                logger.error("Search failed", query=query, error=str(e))
+                return []
+
     async def get_positions(self) -> List[Dict]:
         """Fetch user positions from Data API"""
         if not self.funder_address:

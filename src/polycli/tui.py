@@ -195,7 +195,7 @@ class MarketDetail(Vertical):
                 "liquidity": market.liquidity,
                 "end_date": market.end_date,
                 "description": market.description,
-                "is_watched": market.token_id in self.watchlist,
+                "is_watched": market.token_id in self.app.watchlist,
                 "token_id": market.token_id # For reference
             }
             ChartManager().plot(multi_series, metadata=metadata)
@@ -241,6 +241,7 @@ class DashboardApp(App):
     all_markets: List[MarketData] = []
     focused_market: Optional[MarketData] = None
     watchlist: Set[str] = set()
+    _search_timer: Optional[asyncio.TimerHandle] = None
     
     CSS = """
     Screen { background: #0d1117; color: #c9d1d9; }
@@ -314,7 +315,61 @@ class DashboardApp(App):
 
     @on(Input.Changed, "#search_box")
     def on_search(self, event: Input.Changed) -> None:
-        self.filter_markets(event.value)
+        """Handle search input with debounce"""
+        query = event.value.strip()
+        if not query:
+            if self._search_timer:
+                self._search_timer.cancel()
+            self.filter_markets("") # Revert to default view
+            return
+
+        self.debounced_search(query)
+
+    @work(exclusive=True)
+    async def debounced_search(self, query: str) -> None:
+        """Wait for debounce and then perform search"""
+        await asyncio.sleep(0.3)
+        await self.perform_search(query)
+
+    async def perform_search(self, query: str) -> None:
+        """Execute server-side search via PolyProvider"""
+        poly = PolyProvider()
+        table = self.query_one("#market_list", DataTable)
+        
+        # UI Feedback
+        table.clear()
+        table.add_row("[italic cyan]Searching Polymarket API...", "", "")
+        self.notify(f"Searching for '{query}'...")
+        
+        try:
+            results = await poly.search(query)
+            table.clear()
+            if not results:
+                table.add_row("[red]No results found", "", "")
+                self.notify(f"No results for '{query}'", severity="warning")
+                return
+                
+            for m in results:
+                try:
+                    display_title = m.title[:50] + ("..." if len(m.title) > 50 else "")
+                    vol_fmt = f"${m.volume_24h/1000:.1f}k" if m.volume_24h >= 1000 else f"${m.volume_24h:.0f}"
+                    
+                    table.add_row(
+                        display_title, 
+                        f"${m.price:.2f}", 
+                        vol_fmt, 
+                        key=m.token_id
+                    )
+                    self.markets_cache[m.token_id] = m
+                except Exception:
+                    continue
+            
+            self.notify(f"Found {len(results)} matches for '{query}'", severity="information")
+            
+        except Exception as e:
+            self.notify(f"Search Error: {e}", severity="error")
+            table.clear()
+            table.add_row("[red]Search Failed", "Error", str(e))
 
     def on_key(self, event) -> None:
         """Handle Down arrow in search to focus table"""
