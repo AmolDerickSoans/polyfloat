@@ -11,6 +11,7 @@ import plotext as plt
 from polycli.providers.polymarket import PolyProvider
 from polycli.providers.polymarket_ws import PolymarketWebSocket
 from polycli.providers.base import MarketData, OrderArgs, OrderSide, OrderType
+from polycli.models import PriceSeries, PricePoint, OrderBookSnapshot
 from rich.panel import Panel
 from rich.table import Table
 from rich.bar import Bar
@@ -70,9 +71,10 @@ class QuickOrderModal(ModalScreen):
 
 class PriceChart(Static):
     """Widget to display historical price data"""
-    data = reactive([])
-    def update_chart(self) -> None:
-        if not self.data:
+    series: reactive[Optional[PriceSeries]] = reactive(None)
+
+    def render_chart(self) -> None:
+        if not self.series or not self.series.points:
             self.update("No data available")
             return
         
@@ -84,7 +86,9 @@ class PriceChart(Static):
 
         plt.clf()
         plt.theme("dark")
-        prices = [float(h.get("p", 0.0)) for h in self.data][-100:]
+        # Use prices from the model
+        prices = self.series.prices()
+        
         if not prices:
             self.update("No price data in history")
             return
@@ -98,33 +102,45 @@ class PriceChart(Static):
             return
             
         self.update(Text.from_ansi(plot_str))
-    def watch_data(self) -> None: self.update_chart()
-    def on_resize(self, event) -> None: self.update_chart()
+
+    def watch_series(self) -> None: self.render_chart()
+    def on_resize(self, event) -> None: self.render_chart()
 
 class OrderbookDepth(Static):
     """Widget to display orderbook depth"""
-    depth_data = reactive({"bids": [], "asks": []})
+    snapshot: reactive[Optional[OrderBookSnapshot]] = reactive(None)
+
     def render(self) -> RenderableType:
-        if not self.depth_data["bids"] and not self.depth_data["asks"]:
+        if not self.snapshot or (not self.snapshot.bids and not self.snapshot.asks):
             return Panel("Orderbook: No data", border_style="red")
-        bids = sorted(self.depth_data["bids"], key=lambda x: float(x['price']), reverse=True)[:5]
-        asks = sorted(self.depth_data["asks"], key=lambda x: float(x['price']))[:5]
+        
+        bids = sorted(self.snapshot.bids, key=lambda x: float(x['price']), reverse=True)[:5]
+        asks = sorted(self.snapshot.asks, key=lambda x: float(x['price']))[:5]
+        
         table = Table(show_header=False, expand=True, box=None)
         table.add_column("Bids", justify="right")
         table.add_column("Px", justify="center")
         table.add_column("Asks", justify="left")
+        
         max_size = 1.0
-        for b in bids: max_size = max(max_size, float(b['size']))
-        for a in asks: max_size = max(max_size, float(a['size']))
+        # Calculate max size for bar scaling
+        all_sizes = [float(x['size']) for x in bids + asks]
+        if all_sizes:
+            max_size = max(all_sizes)
+
         for i in range(max(len(bids), len(asks))):
             b = bids[i] if i < len(bids) else None
             a = asks[i] if i < len(asks) else None
+            
             table.add_row(
                 Bar(max_size, 0, float(b['size']), color="green") if b else "",
                 f"[bold cyan]{b['price'] if b else (a['price'] if a else '')}[/]",
                 Bar(max_size, 0, float(a['size']), color="red") if a else ""
             )
-        return Panel(table, title="Orderbook Depth", border_style="blue")
+            
+        imbalance = self.snapshot.imbalance()
+        title = f"Orderbook Depth Δ={imbalance:+.0f}"
+        return Panel(table, title=title, border_style="blue")
 
 class MarketDetail(Vertical):
     """Focused view of a single market"""
@@ -152,10 +168,21 @@ class MarketDetail(Vertical):
                 # 1. Static fetch (REST)
                 h = await poly.get_history(tid)
                 self.app.notify(f"Fetched {len(h)} history points", severity="information")
-                self.query_one("#price_chart", PriceChart).data = h
+                
+                # Create PriceSeries model
+                series = PriceSeries(
+                    points=[PricePoint(t=float(p["t"]), p=float(p["p"])) for p in h],
+                    max_size=1000
+                )
+                self.query_one("#price_chart", PriceChart).series = series
                 
                 b = await poly.get_orderbook(tid)
-                self.query_one("#depth_wall", OrderbookDepth).depth_data = b
+                # Create OrderBookSnapshot model
+                snapshot = OrderBookSnapshot(
+                    bids=b.get("bids", []),
+                    asks=b.get("asks", [])
+                )
+                self.query_one("#depth_wall", OrderbookDepth).snapshot = snapshot
                 
                 # 2. Live Synchronization (WebSocket)
                 if self.current_tid:
@@ -169,14 +196,17 @@ class MarketDetail(Vertical):
     def on_ws_message(self, data: Dict[str, Any]) -> None:
         """Callback for real-time updates"""
         if "bids" in data or "asks" in data:
-            self.query_one("#depth_wall", OrderbookDepth).depth_data = data
+            self.query_one("#depth_wall", OrderbookDepth).snapshot = OrderBookSnapshot(
+                bids=data.get("bids", []),
+                asks=data.get("asks", [])
+            )
             
         if "price" in data:
              p = float(data["price"])
              chart = self.query_one("#price_chart", PriceChart)
-             new_data = list(chart.data)
-             new_data.append({"p": p, "t": asyncio.get_event_loop().time()})
-             chart.data = new_data[-100:]
+             if chart.series:
+                 chart.series.append(p, asyncio.get_event_loop().time())
+                 chart.render_chart()
 
 class DashboardApp(App):
     """PolyCLI Bloomberg Terminal"""
