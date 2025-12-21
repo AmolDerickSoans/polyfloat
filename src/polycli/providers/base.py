@@ -22,6 +22,7 @@ class MarketData(BaseModel):
     liquidity: float
     end_date: Optional[str] = None
     provider: str
+    extra_data: Optional[Dict] = None
 
 class OrderArgs(BaseModel):
     token_id: str

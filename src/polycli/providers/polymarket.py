@@ -44,7 +44,7 @@ class PolyProvider(BaseProvider):
     async def get_markets(
         self,
         category: Optional[str] = None,
-        limit: int = 20
+        limit: int = 250
     ) -> List[MarketData]:
         """Fetch active markets from Polymarket Gamma API"""
         async with httpx.AsyncClient() as client:
@@ -64,10 +64,25 @@ class PolyProvider(BaseProvider):
                     if category and category.lower() not in str(m.get("category", "")).lower():
                         continue
                         
-                    # Extract price from outcomePrices list
-                    # outcomePrices: ["0.45", "0.55"]
-                    prices = m.get("outcomePrices", [])
+                    # Extract price from outcomePrices
+                    # Note: Gamma API sometimes returns these as strings of JSON arrays
+                    prices_raw = m.get("outcomePrices", "[]")
+                    if isinstance(prices_raw, str):
+                        try:
+                            prices = json.loads(prices_raw)
+                        except:
+                            prices = []
+                    else:
+                        prices = prices_raw
+                        
                     price = float(prices[0]) if prices else 0.5
+
+                    # Same for clobTokenIds
+                    token_ids_raw = m.get("clobTokenIds", "[]")
+                    if isinstance(token_ids_raw, str):
+                        token_ids = token_ids_raw # Keep as string for now since tui.py does json.loads
+                    else:
+                        token_ids = json.dumps(token_ids_raw)
 
                     markets.append(MarketData(
                         token_id=m.get("conditionId"),
@@ -77,7 +92,8 @@ class PolyProvider(BaseProvider):
                         volume_24h=float(m.get("volume24hr", 0.0)),
                         liquidity=float(m.get("liquidity", 0.0)),
                         end_date=m.get("endDateIso"),
-                        provider="polymarket"
+                        provider="polymarket",
+                        extra_data={"clob_token_ids": token_ids}
                     ))
                     
                 return markets
@@ -121,6 +137,22 @@ class PolyProvider(BaseProvider):
         except Exception as e:
             logger.error("Error cancelling order", order_id=order_id, error=str(e))
             return False
+
+    async def get_history(self, token_id: str, interval: str = "max") -> List[Dict[str, Any]]:
+        """Fetch price history for a specific token"""
+        async with httpx.AsyncClient() as client:
+            try:
+                params = {
+                    "market": token_id,
+                    "interval": interval
+                }
+                response = await client.get(f"{self.clob_host}/prices-history", params=params)
+                response.raise_for_status()
+                data = response.json()
+                return data.get("history", [])
+            except Exception as e:
+                logger.error("Error fetching price history", token_id=token_id, error=str(e))
+                return []
 
     async def get_positions(self) -> List[Dict]:
         """Fetch user positions from Data API"""

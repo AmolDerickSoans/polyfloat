@@ -1,134 +1,303 @@
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, DataTable, Static, Label
-from textual.containers import Container, Horizontal, Vertical
+from textual.widgets import Header, Footer, DataTable, Static, Label, Input, Button
+from textual.containers import Container, Horizontal, Vertical, Grid
 from textual.reactive import reactive
-from textual import work
+from textual import work, on
+from textual.screen import ModalScreen
 import asyncio
-import random
+import json
+from typing import List, Optional, Dict, Any, Set
+import plotext as plt
+from polycli.providers.polymarket import PolyProvider
+from polycli.providers.polymarket_ws import PolymarketWebSocket
+from polycli.providers.base import MarketData, OrderArgs, OrderSide, OrderType
+from rich.panel import Panel
+from rich.table import Table
+from rich.bar import Bar
+from rich.console import RenderableType
+from rich.text import Text
 
-class MarketTicker(Static):
-    """Widget to display market details"""
-    price = reactive(0.65)
-    
-    def compose(self) -> ComposeResult:
-        yield Label("Market: TRUMP24", classes="title")
-        yield Label(f"Price: ${self.price:.2f}", id="price_label")
-
-    def watch_price(self, old_price: float, new_price: float) -> None:
-        try:
-            self.query_one("#price_label", Label).update(f"Price: ${new_price:.2f}")
-        except Exception:
-            pass
-
-class ArbPanel(Static):
-    """Panel for displaying arbitrage opportunities"""
-    def compose(self) -> ComposeResult:
-        yield Label("Live Arbitrage Scanner", classes="title")
-        yield DataTable(id="arb_table")
+class NewsTicker(Static):
+    """Scrolling news ticker at the bottom of the screen"""
+    news_items = [
+        "US Election 2024: Trump leads in Pennsylvania by 2%",
+        "FED: Powell hints at potential rate pause in January",
+        "CRYPTO: BTC breaches $100k for the first time in history",
+        "POLYX: New arbitrage opportunity detected in 'NBA Winner' markets",
+        "MARKETS: Open interest on Polymarket hits record $2.5B"
+    ]
+    current_index = 0
 
     def on_mount(self) -> None:
-        table = self.query_one("#arb_table", DataTable)
-        table.add_columns("Market", "Edge", "Direction")
+        self.update_news()
+
+    @work
+    async def update_news(self) -> None:
+        while True:
+            item = self.news_items[self.current_index % len(self.news_items)]
+            self.update(f"[bold yellow]NEWS FLASH:[/bold yellow] {item}")
+            self.current_index += 1
+            await asyncio.sleep(5)
+
+class QuickOrderModal(ModalScreen):
+    """Confirm order before execution"""
+    def __init__(self, market: MarketData, side: OrderSide):
+        super().__init__()
+        self.market = market
+        self.side = side
+    def compose(self) -> ComposeResult:
+        with Vertical(id="modal_dialog"):
+            yield Label(f"CONFIRM {self.side.upper()} ORDER")
+            yield Label(f"Market: {self.market.title}")
+            yield Label(f"Price: ${self.market.price:.2f}")
+            with Horizontal(classes="item"):
+                yield Label("Amount ($):")
+                yield Input(placeholder="100", id="order_amount")
+            with Horizontal(classes="item"):
+                yield Button("Execute", variant="success", id="confirm")
+                yield Button("Cancel", variant="error", id="cancel")
+    @on(Button.Pressed, "#confirm")
+    def confirm(self) -> None:
+        amt = self.query_one("#order_amount", Input).value
+        try:
+             amount = float(amt or 0)
+             self.dismiss(OrderArgs(token_id=self.market.token_id, side=self.side, amount=amount, price=self.market.price))
+        except ValueError:
+             self.app.notify("Invalid amount", severity="error")
+             
+    @on(Button.Pressed, "#cancel")
+    def cancel(self) -> None: self.dismiss(None)
+
+class PriceChart(Static):
+    """Widget to display historical price data"""
+    data = reactive([])
+    def update_chart(self) -> None:
+        if not self.data:
+            self.update("No data available")
+            return
+        
+        # Guard against zero/uninitialized size
+        w, h = self.size.width, self.size.height
+        if w <= 4 or h <= 4:
+            self.update(f"Chart space too small: {w}x{h}")
+            return
+
+        plt.clf()
+        plt.theme("dark")
+        prices = [float(h.get("p", 0.0)) for h in self.data][-100:]
+        if not prices:
+            self.update("No price data in history")
+            return
+            
+        plt.plot(prices, color="cyan")
+        plt.plotsize(w - 2, h - 2)
+        # Force ANSI rendering for Textual/Rich correctly
+        plot_str = plt.build()
+        if not plot_str.strip():
+            self.update(f"Plot builder returned empty string for {len(prices)} points")
+            return
+            
+        self.update(Text.from_ansi(plot_str))
+    def watch_data(self) -> None: self.update_chart()
+    def on_resize(self, event) -> None: self.update_chart()
+
+class OrderbookDepth(Static):
+    """Widget to display orderbook depth"""
+    depth_data = reactive({"bids": [], "asks": []})
+    def render(self) -> RenderableType:
+        if not self.depth_data["bids"] and not self.depth_data["asks"]:
+            return Panel("Orderbook: No data", border_style="red")
+        bids = sorted(self.depth_data["bids"], key=lambda x: float(x['price']), reverse=True)[:5]
+        asks = sorted(self.depth_data["asks"], key=lambda x: float(x['price']))[:5]
+        table = Table(show_header=False, expand=True, box=None)
+        table.add_column("Bids", justify="right")
+        table.add_column("Px", justify="center")
+        table.add_column("Asks", justify="left")
+        max_size = 1.0
+        for b in bids: max_size = max(max_size, float(b['size']))
+        for a in asks: max_size = max(max_size, float(a['size']))
+        for i in range(max(len(bids), len(asks))):
+            b = bids[i] if i < len(bids) else None
+            a = asks[i] if i < len(asks) else None
+            table.add_row(
+                Bar(max_size, 0, float(b['size']), color="green") if b else "",
+                f"[bold cyan]{b['price'] if b else (a['price'] if a else '')}[/]",
+                Bar(max_size, 0, float(a['size']), color="red") if a else ""
+            )
+        return Panel(table, title="Orderbook Depth", border_style="blue")
+
+class MarketDetail(Vertical):
+    """Focused view of a single market"""
+    market = reactive(None)
+    current_tid = None
+
+    def compose(self) -> ComposeResult:
+        yield Label("Select a market", id="detail_title")
+        yield PriceChart(id="price_chart")
+        yield OrderbookDepth(id="depth_wall")
+
+    def watch_market(self, market: Optional[MarketData]) -> None:
+        if market:
+            self.query_one("#detail_title", Label).update(f"FOCUS: {market.title}")
+            self.setup_market(market)
+
+    @work(exclusive=True)
+    async def setup_market(self, market: MarketData) -> None:
+        """Fetch static data and handle WS subscription"""
+        poly = PolyProvider()
+        try:
+            token_ids = json.loads(market.extra_data.get("clob_token_ids", "[]"))
+            if token_ids:
+                tid = token_ids[0]
+                # 1. Static fetch (REST)
+                h = await poly.get_history(tid)
+                self.app.notify(f"Fetched {len(h)} history points", severity="information")
+                self.query_one("#price_chart", PriceChart).data = h
+                
+                b = await poly.get_orderbook(tid)
+                self.query_one("#depth_wall", OrderbookDepth).depth_data = b
+                
+                # 2. Live Synchronization (WebSocket)
+                if self.current_tid:
+                    await self.app.ws_client.unsubscribe(self.current_tid, self.on_ws_message)
+                
+                self.current_tid = tid
+                await self.app.ws_client.subscribe(tid, self.on_ws_message)
+        except Exception as e:
+            self.app.notify(f"Sync Error: {e}", severity="error")
+
+    def on_ws_message(self, data: Dict[str, Any]) -> None:
+        """Callback for real-time updates"""
+        if "bids" in data or "asks" in data:
+            self.query_one("#depth_wall", OrderbookDepth).depth_data = data
+            
+        if "price" in data:
+             p = float(data["price"])
+             chart = self.query_one("#price_chart", PriceChart)
+             new_data = list(chart.data)
+             new_data.append({"p": p, "t": asyncio.get_event_loop().time()})
+             chart.data = new_data[-100:]
 
 class DashboardApp(App):
-    """PolyCLI Terminal Dashboard"""
+    """PolyCLI Bloomberg Terminal"""
+    markets_cache: Dict[str, MarketData] = {}
+    all_markets: List[MarketData] = []
+    focused_market: Optional[MarketData] = None
+    watchlist: Set[str] = set()
+    
     CSS = """
-    Screen {
-        layout: grid;
-        grid-size: 2;
-        grid-gutter: 1;
-        padding: 1;
-    }
-    .title {
-        text-style: bold;
-        color: cyan;
-        margin-bottom: 1;
-    }
-    MarketTicker, ArbPanel {
-        height: 100%;
-        border: solid green;
-        padding: 1;
-    }
-    #market_table, #arb_table {
-        height: 100%;
-        border: solid blue;
-    }
+    Screen { background: #0d1117; color: #c9d1d9; }
+    #main_grid { layout: grid; grid-size: 2; grid-columns: 3fr 7fr; height: 1fr; }
+    #market_sidebar { border-right: tall #30363d; height: 100%; }
+    #detail_panel { padding: 1; height: 100%; }
+    MarketDetail { height: 100%; }
+    NewsTicker { height: 3; background: #161b22; border-top: solid #58a6ff; padding: 1; }
+    .title { text-style: bold; color: #58a6ff; background: #161b22; padding: 0 1; text-align: center; }
+    DataTable { height: 1fr; background: #0d1117; border: none; }
+    PriceChart { height: 30; border: solid #30363d; margin: 1 0; }
+    OrderbookDepth { height: 20; border: solid #30363d; }
+    #modal_dialog { background: #161b22; border: solid cyan; padding: 2; width: 40; height: 15; align: center middle; }
+    #modal_dialog .item { height: 3; margin-top: 1; }
+    #search_box { margin: 1; border: solid #30363d; border-title-align: left; }
     """
+    
     BINDINGS = [
-        ("q", "quit", "Quit"),
-        ("r", "refresh", "Manual Refresh")
+        ("q", "quit", "Quit"), 
+        ("r", "refresh", "Refresh"),
+        ("b", "buy", "Buy"),
+        ("s", "sell", "Sell"),
+        ("w", "toggle_watchlist", "Watchlist"),
+        ("/", "focus_search", "Search")
     ]
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield MarketTicker()
-        yield ArbPanel()
-        yield DataTable(id="market_table")
+        with Container(id="main_grid"):
+            with Vertical(id="market_sidebar"):
+                yield Label("MARKETS", classes="title")
+                yield Input(placeholder="Search markets...", id="search_box")
+                yield DataTable(id="market_list")
+                yield Label("WATCHLIST [Hotkey: 'w']", classes="title")
+                yield DataTable(id="watch_list")
+            with Vertical(id="detail_panel"):
+                yield MarketDetail(id="market_focus")
+        yield NewsTicker()
         yield Footer()
 
     def on_mount(self) -> None:
-        m_table = self.query_one("#market_table", DataTable)
-        m_table.add_columns("Provider", "Price", "Volume")
-        m_table.add_rows([
-            ("Polymarket", "0.65", "$1.2M"),
-            ("Kalshi", "0.68", "$450K"),
-        ])
-        self.update_data()
+        self.ws_client = PolymarketWebSocket()
+        self.ws_client.start()
+        
+        mlist = self.query_one("#market_list", DataTable); mlist.cursor_type = "row"; mlist.add_columns("Market", "Px", "Vol")
+        wlist = self.query_one("#watch_list", DataTable); wlist.cursor_type = "row"; wlist.add_columns("Market", "Px")
+        self.update_markets()
 
-    async def action_refresh(self) -> None:
-        self.update_data()
+    async def on_unmount(self) -> None:
+        if hasattr(self, "ws_client"):
+            await self.ws_client.stop()
 
     @work(exclusive=True)
-    async def update_data(self):
-        """Fetch real data for the TUI"""
-        from polycli.providers.polymarket import PolyProvider
-        from polycli.providers.kalshi import KalshiProvider
-        from polycli.utils.matcher import match_markets
-        from polycli.utils.arbitrage import find_opportunities
-        
+    async def update_markets(self) -> None:
         poly = PolyProvider()
-        kalshi = KalshiProvider()
-        
-        while True:
-            try:
-                # 1. Update Market Ticker with real data
-                p_markets = await poly.get_markets(limit=20)
-                k_markets = await kalshi.get_markets(limit=20)
-                
-                if p_markets:
-                    self.query_one(MarketTicker).price = p_markets[0].price
-                
-                # 2. Update Arb Table
-                arb_table = self.query_one("#arb_table", DataTable)
-                if p_markets and k_markets:
-                    matches = match_markets(p_markets, k_markets)
-                    opps = find_opportunities(matches, min_edge=0.01)
-                    arb_table.clear()
-                    if not opps:
-                         # No arbs found, but matching worked
-                         pass
-                    for o in opps:
-                        arb_table.add_row(o.market_name[:20], f"{o.edge:.2%}", o.direction)
-                elif p_markets and not k_markets:
-                    arb_table.clear()
-                    arb_table.add_row("Kalshi Auth Needed", "N/A", "Check .env")
-                
-                # 3. Update Market Table
-                m_table = self.query_one("#market_table", DataTable)
-                m_table.clear()
-                for m in p_markets[:5]:
-                    m_table.add_row("Poly", f"${m.price:.2f}", m.title[:20])
-                for m in k_markets[:5]:
-                    m_table.add_row("Kalshi", f"${m.price:.2f}", m.title[:20])
-                    
-            except Exception as e:
-                # Log error to market table for visibility in dev
-                try:
-                    self.query_one("#market_table", DataTable).add_row("Error", str(e)[:10], "Check logs")
-                except:
-                    pass
-                
-            await asyncio.sleep(30)
+        try:
+            self.all_markets = await poly.get_markets(limit=250)
+            self.filter_markets("")
+        except Exception as e:
+            self.notify(f"Market Load Error: {e}", severity="error")
+
+    def filter_markets(self, query: str) -> None:
+        table = self.query_one("#market_list", DataTable)
+        table.clear()
+        query = query.lower()
+        for m in self.all_markets:
+            if query in m.title.lower():
+                table.add_row(m.title[:20], f"${m.price:.2f}", f"${m.volume_24h/1000:.0f}k", key=m.token_id)
+                self.markets_cache[m.token_id] = m
+
+    @on(Input.Changed, "#search_box")
+    def on_search(self, event: Input.Changed) -> None:
+        self.filter_markets(event.value)
+
+    def on_key(self, event) -> None:
+        """Handle Down arrow in search to focus table"""
+        if self.query_one("#search_box").has_focus and event.key == "down":
+            self.query_one("#market_list").focus()
+
+    def action_focus_search(self) -> None:
+        self.query_one("#search_box", Input).focus()
+
+    @on(DataTable.RowSelected, "#market_list")
+    def select_market(self, event: DataTable.RowSelected) -> None:
+        m = self.markets_cache.get(event.row_key.value)
+        if m: self.focused_market = m; self.query_one("#market_focus", MarketDetail).market = m
+
+    @on(DataTable.RowSelected, "#watch_list")
+    def select_watchlist_market(self, event: DataTable.RowSelected) -> None:
+        m = self.markets_cache.get(event.row_key.value)
+        if m: self.focused_market = m; self.query_one("#market_focus", MarketDetail).market = m
+
+    def action_toggle_watchlist(self) -> None:
+        if self.focused_market:
+            tid = self.focused_market.token_id
+            wlist = self.query_one("#watch_list", DataTable)
+            if tid in self.watchlist:
+                self.watchlist.remove(tid)
+                wlist.remove_row(tid)
+                self.notify("Removed from watchlist")
+            else:
+                self.watchlist.add(tid)
+                wlist.add_row(self.focused_market.title[:15], f"${self.focused_market.price:.2f}", key=tid)
+                self.notify("Added to watchlist", severity="information")
+
+    def action_buy(self) -> None:
+        if self.focused_market: self.push_screen(QuickOrderModal(self.focused_market, OrderSide.BUY), self.handle_order)
+    def action_sell(self) -> None:
+        if self.focused_market: self.push_screen(QuickOrderModal(self.focused_market, OrderSide.SELL), self.handle_order)
+
+    async def handle_order(self, order: Optional[OrderArgs]) -> None:
+        if order:
+            res = await PolyProvider().place_order(order)
+            self.notify("Order Submitted!" if res.status == "submitted" else "Error", severity="information" if res.status == "submitted" else "error")
 
 if __name__ == "__main__":
     app = DashboardApp()
