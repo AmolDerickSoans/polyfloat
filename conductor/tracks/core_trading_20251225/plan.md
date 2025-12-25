@@ -33,7 +33,7 @@ Complete the trading and real-time data implementation for Kalshi.
     - [x] Task: Refine `kalshi_ws.py` for real-time orderbook and trade updates
 - [x] Task: Conductor - User Manual Verification 'Phase 3: Kalshi Integration Refinement' (Protocol in workflow.md)
 
-## Phase 4: Integration & History
+## Phase 4: Integration & History [checkpoint: 61e30cc]
 Finalize history retrieval and cross-market consistency.
 
 - [x] Task: Implement unified trade and fill history retrieval 213425e
@@ -42,4 +42,4 @@ Finalize history retrieval and cross-market consistency.
 - [x] Task: Final verification of real-time data consistency 336deb1
     - [x] Task: Write integration tests verifying data flow from WS to unified models
     - [x] Task: Implement monitoring hooks for data latency and health
-- [ ] Task: Conductor - User Manual Verification 'Phase 4: Integration & History' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 4: Integration & History' (Protocol in workflow.md)
