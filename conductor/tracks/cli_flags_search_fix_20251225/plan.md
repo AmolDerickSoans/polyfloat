@@ -5,7 +5,7 @@
     - [ ] Update `src/polycli/cli.py` (or entry point) to accept new flags: `--poly-key`, `--gemini-key`, `--kalshi-key`, `--kalshi-key-id`, `--kalshi-pem`.
     - [ ] Modify `src/polycli/utils/config.py` to accept runtime overrides.
     - [ ] Verify flags inject credentials into the running session without saving to disk.
-- [ ] Task: Implement Persistent Flag Logic (`--save`)
+- [x] Task: Implement Persistent Flag Logic (`--save`) 0e92ea0
     - [ ] Add `--save` boolean flag.
     - [ ] Implement logic to write provided flag values to `.env` or `setup_state.json` when `--save` is present.
 - [ ] Task: Verify CLI Flag Precedence & Security
