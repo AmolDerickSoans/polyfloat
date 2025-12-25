@@ -1,41 +1,6 @@
 from abc import ABC, abstractmethod
-from pydantic import BaseModel
-from typing import List, Optional, Dict
-from enum import Enum
-
-class OrderSide(str, Enum):
-    BUY = "BUY"
-    SELL = "SELL"
-
-class OrderType(str, Enum):
-    MARKET = "MARKET"
-    LIMIT = "LIMIT"
-    FOK = "FOK"  # Fill or Kill
-    GTC = "GTC"  # Good Till Cancel
-
-class MarketData(BaseModel):
-    token_id: str
-    title: str
-    description: Optional[str] = None
-    price: float
-    volume_24h: float
-    liquidity: float
-    end_date: Optional[str] = None
-    provider: str
-    extra_data: Optional[Dict] = None
-
-class OrderArgs(BaseModel):
-    token_id: str
-    side: OrderSide
-    amount: float
-    price: Optional[float] = None
-    order_type: OrderType = OrderType.MARKET
-
-class OrderResponse(BaseModel):
-    order_id: str
-    status: str
-    filled_amount: float
-    avg_price: float
+from typing import List, Optional, Dict, Any
+from polycli.models import Market, OrderBook, Trade, Position, Order, Side, OrderType
 
 class BaseProvider(ABC):
     """Standard interface for prediction market providers"""
@@ -45,17 +10,24 @@ class BaseProvider(ABC):
         self,
         category: Optional[str] = None,
         limit: int = 100
-    ) -> List[MarketData]:
+    ) -> List[Market]:
         """Fetch available markets"""
         pass
     
     @abstractmethod
-    async def get_orderbook(self, token_id: str) -> Dict:
+    async def get_orderbook(self, market_id: str) -> OrderBook:
         """Get orderbook for specific market"""
         pass
     
     @abstractmethod
-    async def place_order(self, order: OrderArgs) -> OrderResponse:
+    async def place_order(
+        self, 
+        market_id: str,
+        side: Side,
+        size: float,
+        price: float,
+        order_type: OrderType = OrderType.LIMIT
+    ) -> Order:
         """Place an order"""
         pass
     
@@ -65,6 +37,16 @@ class BaseProvider(ABC):
         pass
     
     @abstractmethod
-    async def get_positions(self) -> List[Dict]:
+    async def get_positions(self) -> List[Position]:
         """Get user's open positions"""
+        pass
+
+    @abstractmethod
+    async def get_orders(self, market_id: Optional[str] = None) -> List[Order]:
+        """Get user's open orders"""
+        pass
+
+    @abstractmethod
+    async def get_history(self, market_id: Optional[str] = None) -> List[Trade]:
+        """Get user's trade history"""
         pass
