@@ -394,6 +394,7 @@ def main_callback(
     kalshi_pass: Optional[str] = typer.Option(None, "--kalshi-pass", help="Kalshi Password"),
     kalshi_key_id: Optional[str] = typer.Option(None, "--kalshi-key-id", help="Kalshi Key ID"),
     kalshi_pem: Optional[str] = typer.Option(None, "--kalshi-pem", help="Kalshi Private Key Path"),
+    save: bool = typer.Option(False, "--save", help="Persist credentials to .env"),
 ):
     """
     PolyCLI Entry Point (v1.0)
@@ -405,6 +406,25 @@ def main_callback(
     if kalshi_pass: os.environ["KALSHI_PASSWORD"] = kalshi_pass
     if kalshi_key_id: os.environ["KALSHI_KEY_ID"] = kalshi_key_id
     if kalshi_pem: os.environ["KALSHI_PRIVATE_KEY_PATH"] = kalshi_pem
+
+    if save:
+        env_file = ".env"
+        if not os.path.exists(env_file):
+            with open(env_file, "w") as f: pass
+            
+        if poly_key: set_key(env_file, "POLY_PRIVATE_KEY", poly_key)
+        if gemini_key: set_key(env_file, "GOOGLE_API_KEY", gemini_key)
+        if kalshi_email: set_key(env_file, "KALSHI_EMAIL", kalshi_email)
+        if kalshi_pass: set_key(env_file, "KALSHI_PASSWORD", kalshi_pass)
+        if kalshi_key_id: set_key(env_file, "KALSHI_KEY_ID", kalshi_key_id)
+        if kalshi_pem: set_key(env_file, "KALSHI_PRIVATE_KEY_PATH", kalshi_pem)
+        
+        # Also mark them as NOT skipped so ensure_credentials doesn't complain
+        if poly_key: set_key(env_file, "SKIP_POLY", "false")
+        if gemini_key: set_key(env_file, "SKIP_GEMINI", "false")
+        if kalshi_email or kalshi_key_id: set_key(env_file, "SKIP_KALSHI", "false")
+        
+        load_dotenv(env_file, override=True)
 
     # Only print header and check envs if not running a help command
     if "--help" not in sys.argv:

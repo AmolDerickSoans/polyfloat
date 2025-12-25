@@ -51,3 +51,23 @@ def test_no_flags_leaves_env_untouched():
         
         assert os.environ.get("POLY_PRIVATE_KEY") == "0xEXISTING"
         assert "KALSHI_EMAIL" not in os.environ # Should not be set if not provided
+
+def test_persistent_flags_save_to_env():
+    """Test that using --save writes the values to the .env file."""
+    
+    with patch("polycli.cli.set_key") as mock_set_key, \
+         patch("polycli.cli.ensure_credentials"):
+         
+        result = runner.invoke(app, [
+            "--poly-key", "0xPERSIST",
+            "--save",
+            "version"
+        ])
+        
+        # Current status: Green
+        if result.exit_code != 0:
+            pytest.fail(f"CLI failed to accept --save: {result.stdout}")
+            
+        # Verify set_key was called
+        mock_set_key.assert_any_call(".env", "POLY_PRIVATE_KEY", "0xPERSIST")
+        mock_set_key.assert_any_call(".env", "SKIP_POLY", "false")
