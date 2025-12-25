@@ -15,7 +15,7 @@ from polycli.providers.polymarket import PolyProvider
 from polycli.providers.kalshi import KalshiProvider
 from polycli.providers.polymarket_ws import PolymarketWebSocket
 from polycli.providers.kalshi_ws import KalshiWebSocket
-from polycli.models import PriceSeries, PricePoint, OrderBook, MultiLineSeries, Market, Trade, Side, OrderStatus, Order
+from polycli.models import PriceSeries, PricePoint, OrderBook, MultiLineSeries, Market, Trade, Side, OrderStatus, Order, PriceLevel
 from polycli.utils.launcher import ChartManager
 from polycli.arbitrage.tui_widget import ArbitrageScanner
 from rich.panel import Panel

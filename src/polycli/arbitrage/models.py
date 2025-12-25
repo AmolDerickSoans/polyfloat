@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 from enum import Enum
-from polycli.providers.base import MarketData
+from polycli.models import Market
 
 class MarketType(str, Enum):
     MONEYLINE = "MONEYLINE"
@@ -19,12 +19,12 @@ class MarketPair(BaseModel):
     
     # Kalshi side
     kalshi_ticker: str
-    kalshi_market: Optional[MarketData] = None
+    kalshi_market: Optional[Market] = None
     
     # Polymarket side
     poly_slug: str
     poly_token_id: Optional[str] = None
-    poly_market: Optional[MarketData] = None
+    poly_market: Optional[Market] = None
     
     # Metadata
     team_suffix: Optional[str] = None

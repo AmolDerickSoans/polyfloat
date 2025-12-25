@@ -7,7 +7,6 @@ from datetime import datetime
 from polycli.providers.kalshi import KalshiProvider
 from polycli.providers.polymarket import PolyProvider
 from polycli.arbitrage.models import MarketPair, MarketType
-from polycli.providers.base import MarketData
 
 logger = logging.getLogger(__name__)
 
