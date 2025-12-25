@@ -3,7 +3,7 @@
 ## Phase 1: Unified Market Models & Base Providers
 Establish the data structures and base communication layers.
 
-- [x] Task: Define standardized models for `Market`, `OrderBook`, `Trade`, and `Position` in `models.py`
+- [x] Task: Define standardized models for `Market`, `OrderBook`, `Trade`, and `Position` in `models.py` 51e3b34
     - [x] Task: Write tests for model validation and serialization
     - [x] Task: Implement models using Pydantic
 - [ ] Task: Enhance Base Provider interface with unified methods for trading and data
