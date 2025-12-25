@@ -41,6 +41,16 @@ class PolyProvider(BaseProvider):
             funder=self.funder_address
         )
 
+    def close(self):
+        """Cleanup any resources if needed"""
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     async def get_markets(
         self,
         category: Optional[str] = None,

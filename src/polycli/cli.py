@@ -287,12 +287,15 @@ def ensure_credentials():
                           console.print("[bold red] Authentication Failed: Unable to initialize API client. Check your keys/password.[/bold red]")
                           # We don't block exit, but user knows.
                      else:
-                          # Run check
-                          is_valid = asyncio.run(prov.check_connection())
-                          if is_valid:
-                              console.print("[bold green]✓ Verified: Connected to Kalshi[/bold green]")
-                          else:
-                              console.print("[bold red]⚠ Warning: API Client initialized but check_connection failed.[/bold red]")
+                      # Run check
+                      is_valid = asyncio.run(prov.check_connection())
+                      if is_valid:
+                          console.print("[bold green]✓ Verified: Connected to Kalshi[/bold green]")
+                      else:
+                          console.print("[bold red]⚠ Warning: API Client initialized but check_connection failed.[/bold red]")
+                      
+                      # Cleanup
+                      prov.close()
                  except Exception as e:
                      console.print(f"[red]Verification Error: {e}[/red]")
 
@@ -527,12 +530,11 @@ def arb_scan(
                 ),
             ]
         else:
-            poly = PolyProvider()
-            kalshi = KalshiProvider()
-            with console.status("[bold green]Fetching markets from providers..."):
-                p_markets, k_markets = await asyncio.gather(
-                    poly.get_markets(limit=limit), kalshi.get_markets(limit=limit)
-                )
+            with PolyProvider() as poly, KalshiProvider() as kalshi:
+                with console.status("[bold green]Fetching markets from providers..."):
+                    p_markets, k_markets = await asyncio.gather(
+                        poly.get_markets(limit=limit), kalshi.get_markets(limit=limit)
+                    )
 
         console.print(
             f"Fetched {len(p_markets)} from Polymarket, {len(k_markets)} from Kalshi."

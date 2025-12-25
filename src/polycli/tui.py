@@ -196,8 +196,8 @@ class MarketDetail(Vertical):
     @work(exclusive=True)
     async def setup_market(self, market: MarketData) -> None:
         """Fetch static data and handle WS subscription"""
-        poly = PolyProvider()
-        kalshi = KalshiProvider()
+        poly = self.app.poly
+        kalshi = self.app.kalshi
         
         try:
             multi_series = MultiLineSeries(title=market.title)
@@ -402,8 +402,8 @@ class PortfolioView(Container):
         try:
             # Parallel Fetch
             p_poly, p_kalshi = await asyncio.gather(
-                PolyProvider().get_positions(),
-                KalshiProvider().get_positions(),
+                self.app.poly.get_positions(),
+                self.app.kalshi.get_positions(),
                 return_exceptions=True
             )
             
@@ -540,6 +540,10 @@ class DashboardApp(App):
         self.kalshi_ws = KalshiWebSocket()
         self.call_later(self.start_kalshi_ws)
         
+        # Shared provider instances to avoid redundant initialization and for proper lifecycle management
+        self.poly = PolyProvider()
+        self.kalshi = KalshiProvider()
+        
         mlist = self.query_one("#market_list", DataTable); mlist.cursor_type = "row"; mlist.add_columns("Market", "Px", "Vol", "Src")
         wlist = self.query_one("#watch_list", DataTable); wlist.cursor_type = "row"; wlist.add_columns("Market", "Px")
         self.update_markets()
@@ -566,11 +570,13 @@ class DashboardApp(App):
             await self.ws_client.stop()
         if hasattr(self, "kalshi_ws"):
             await self.kalshi_ws.disconnect()
+        if hasattr(self, "kalshi"):
+            self.kalshi.close()
 
     @work(exclusive=True)
     async def update_markets(self) -> None:
-        poly = PolyProvider()
-        kalshi = KalshiProvider()
+        poly = self.poly
+        kalshi = self.kalshi
         try:
             tasks = []
             if self.selected_provider in ["polymarket", "all"]:
@@ -635,12 +641,12 @@ class DashboardApp(App):
             
             # Polymarket
             if self.selected_provider in ["polymarket", "all"]:
-                tasks.append(PolyProvider().search(query))
+                tasks.append(self.poly.search(query))
             
             # Kalshi
             if self.selected_provider in ["kalshi", "all"]:
                 # Use updated KalshiProvider search which filters Events and fetches matching markets
-                tasks.append(KalshiProvider().search(query))
+                tasks.append(self.kalshi.search(query))
 
             # Gather
             gathered_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -730,9 +736,9 @@ class DashboardApp(App):
         if order:
             # Route to Correct Provider
             if self.focused_market and self.focused_market.provider == "kalshi":
-                 res = await KalshiProvider().place_order(order)
+                 res = await self.kalshi.place_order(order)
             else:
-                 res = await PolyProvider().place_order(order)
+                 res = await self.poly.place_order(order)
 
             self.notify("Order Submitted!" if res.status in ["submitted", "pending"] else f"Error: {res.status}", 
                         severity="information" if res.status in ["submitted", "pending"] else "error")

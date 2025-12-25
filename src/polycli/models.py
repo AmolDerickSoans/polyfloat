@@ -1,5 +1,70 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
+from enum import Enum
+from pydantic import BaseModel, Field
+
+class MarketStatus(str, Enum):
+    ACTIVE = "active"
+    CLOSED = "closed"
+    RESOLVED = "resolved"
+
+class Side(str, Enum):
+    BUY = "buy"
+    SELL = "sell"
+
+class OrderType(str, Enum):
+    LIMIT = "limit"
+    MARKET = "market"
+
+class OrderStatus(str, Enum):
+    OPEN = "open"
+    FILLED = "filled"
+    CANCELLED = "cancelled"
+    PARTIAL = "partial"
+
+class Market(BaseModel):
+    id: str
+    provider: str
+    question: str
+    status: MarketStatus
+    outcomes: List[str]
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+class PriceLevel(BaseModel):
+    price: float
+    size: float
+
+class OrderBook(BaseModel):
+    market_id: str
+    bids: List[PriceLevel]
+    asks: List[PriceLevel]
+    timestamp: float
+
+class Trade(BaseModel):
+    id: str
+    market_id: str
+    price: float
+    size: float
+    side: Side
+    timestamp: float
+
+class Order(BaseModel):
+    id: str
+    market_id: str
+    price: float
+    size: float
+    side: Side
+    type: OrderType
+    status: OrderStatus
+    timestamp: float
+
+class Position(BaseModel):
+    market_id: str
+    outcome: str
+    size: float
+    avg_price: float
+    realized_pnl: float = 0.0
+    unrealized_pnl: float = 0.0
 
 @dataclass
 class PricePoint:
