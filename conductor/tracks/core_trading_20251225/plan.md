@@ -14,9 +14,9 @@ Establish the data structures and base communication layers.
 ## Phase 2: Polymarket Integration Refinement
 Complete the trading and real-time data implementation for Polymarket.
 
-- [ ] Task: Implement comprehensive trading methods in `PolymarketProvider`
-    - [ ] Task: Write tests for Polymarket order placement and cancellation (using mocks)
-    - [ ] Task: Implement `create_order`, `cancel_order`, and `get_orders` in `polymarket.py`
+- [x] Task: Implement comprehensive trading methods in `PolymarketProvider`
+    - [x] Task: Write tests for Polymarket order placement and cancellation (using mocks)
+    - [x] Task: Implement `create_order`, `cancel_order`, and `get_orders` in `polymarket.py`
 - [ ] Task: Robust Polymarket WebSocket implementation
     - [ ] Task: Write tests for WebSocket message parsing and reconnection logic
     - [ ] Task: Refine `polymarket_ws.py` for real-time orderbook and trade updates

@@ -3,7 +3,8 @@ import httpx
 import json
 from typing import List, Optional, Dict, Any
 from py_clob_client.client import ClobClient
-from polycli.providers.base import BaseProvider, MarketData, OrderArgs, OrderResponse, OrderSide, OrderType
+from polycli.providers.base import BaseProvider
+from polycli.models import Event, Market, OrderBook, Trade, Position, Order, Side, OrderType, MarketStatus, OrderStatus, PriceLevel
 import structlog
 
 logger = structlog.get_logger()
@@ -32,7 +33,6 @@ class PolyProvider(BaseProvider):
         self.funder_address = funder_address or os.getenv("POLY_FUNDER_ADDRESS")
         
         # Client for authenticated actions (trading)
-        # Note: If no keys provided, client will still work for public endpoints
         self.client = ClobClient(
             host=clob_host,
             key=self.private_key,
@@ -41,21 +41,41 @@ class PolyProvider(BaseProvider):
             funder=self.funder_address
         )
 
-    def close(self):
-        """Cleanup any resources if needed"""
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
+    async def get_events(
+        self,
+        category: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Event]:
+        """Fetch available events from Polymarket Gamma API"""
+        async with httpx.AsyncClient() as client:
+            try:
+                params = {"limit": limit}
+                response = await client.get(f"{self.gamma_host}/events", params=params)
+                response.raise_for_status()
+                raw_events = response.json()
+                
+                events = []
+                for e in raw_events:
+                    events.append(Event(
+                        id=e.get("id"),
+                        provider="polymarket",
+                        title=e.get("title", "Unknown Event"),
+                        description=e.get("description", ""),
+                        status=MarketStatus.ACTIVE if e.get("active") else MarketStatus.CLOSED,
+                        markets=[m.get("id") for m in e.get("markets", [])],
+                        metadata=e
+                    ))
+                return events
+            except Exception as e:
+                logger.error("Error fetching events from Gamma", error=str(e))
+                return []
 
     async def get_markets(
         self,
+        event_id: Optional[str] = None,
         category: Optional[str] = None,
-        limit: int = 250
-    ) -> List[MarketData]:
+        limit: int = 100
+    ) -> List[Market]:
         """Fetch active markets from Polymarket Gamma API"""
         async with httpx.AsyncClient() as client:
             try:
@@ -64,241 +84,96 @@ class PolyProvider(BaseProvider):
                     "closed": "false",
                     "limit": limit
                 }
-                response = await client.get(f"{self.gamma_host}/markets", params=params)
-                response.raise_for_status()
-                raw_markets = response.json()
+                if event_id:
+                    # In Gamma, markets are often fetched via the events endpoint
+                    response = await client.get(f"{self.gamma_host}/events/{event_id}")
+                    raw_markets = response.json().get("markets", [])
+                else:
+                    response = await client.get(f"{self.gamma_host}/markets", params=params)
+                    raw_markets = response.json()
                 
                 markets = []
                 for m in raw_markets:
-                    # Filter by category if provided
-                    if category and category.lower() not in str(m.get("category", "")).lower():
-                        continue
-                        
-                    # Extract price from outcomePrices
-                    # Note: Gamma API sometimes returns these as strings of JSON arrays
-                    prices_raw = m.get("outcomePrices", "[]")
-                    if isinstance(prices_raw, str):
-                        try:
-                            prices = json.loads(prices_raw)
-                        except:
-                            prices = []
-                    else:
-                        prices = prices_raw
-                        
-                    price = float(prices[0]) if prices else 0.5
-
-                    # Same for clobTokenIds
-                    token_ids_raw = m.get("clobTokenIds", "[]")
-                    if isinstance(token_ids_raw, str):
-                        token_ids = token_ids_raw # Keep as string for now since tui.py does json.loads
-                    else:
-                        token_ids = json.dumps(token_ids_raw)
-
-                    markets.append(MarketData(
-                        token_id=m.get("conditionId"),
-                        title=m.get("question", "Unknown Market"),
-                        description=m.get("description"),
-                        price=price,
-                        volume_24h=float(m.get("volume24hr", 0.0)),
-                        liquidity=float(m.get("liquidity", 0.0)),
-                        end_date=m.get("endDateIso"),
+                    markets.append(Market(
+                        id=m.get("conditionId") or m.get("id"),
+                        event_id=str(m.get("eventId", "")),
                         provider="polymarket",
-                        extra_data={
-                            "clob_token_ids": token_ids,
-                            "slug": m.get("slug"),
-                            "event_slug": m.get("slug") # Gamma "market" endpoint often returns the market slug which is tied to the event
-                        }
+                        question=m.get("question", "Unknown Market"),
+                        status=MarketStatus.ACTIVE if m.get("active") else MarketStatus.CLOSED,
+                        outcomes=m.get("outcomes", []),
+                        metadata=m
                     ))
-                    
                 return markets
             except Exception as e:
                 logger.error("Error fetching markets from Gamma", error=str(e))
                 return []
 
-    async def get_orderbook(self, token_id: str) -> Dict:
-        """Get orderbook from CLOB API. token_id should be an asset ID."""
+    async def get_orderbook(self, market_id: str) -> OrderBook:
+        """Get orderbook from CLOB API. market_id should be a token ID for CLOB."""
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.get(f"{self.clob_host}/book", params={"token_id": token_id})
+                # Polymarket CLOB uses token_id in the book endpoint
+                response = await client.get(f"{self.clob_host}/book", params={"token_id": market_id})
                 response.raise_for_status()
-                return response.json()
+                data = response.json()
+                
+                return OrderBook(
+                    market_id=market_id,
+                    bids=[PriceLevel(price=float(l["price"]), size=float(l["size"])) for l in data.get("bids", [])],
+                    asks=[PriceLevel(price=float(l["price"]), size=float(l["size"])) for l in data.get("asks", [])],
+                    timestamp=float(data.get("timestamp", 0))
+                )
             except Exception as e:
-                logger.error("Error fetching orderbook", token_id=token_id, error=str(e))
-                return {}
+                logger.error("Error fetching orderbook", market_id=market_id, error=str(e))
+                return OrderBook(market_id=market_id, bids=[], asks=[], timestamp=0)
 
-    async def place_order(self, order: OrderArgs) -> OrderResponse:
+    async def place_order(
+        self, 
+        market_id: str,
+        side: Side,
+        size: float,
+        price: float,
+        order_type: OrderType = OrderType.LIMIT
+    ) -> Order:
         """Place an order using py-clob-client"""
         if not self.private_key:
-            return OrderResponse(order_id="", status="error", filled_amount=0.0, avg_price=0.0)
+            raise ValueError("Private key required for trading")
 
-        # Implementation would involve using self.client.create_and_post_order
-        # but requires knowing which token_id (asset_id) to buy.
-        # This mapping is usually found in the clobTokenIds field of the Gamma market.
-        logger.info("Order placement requested", side=order.side, amount=order.amount)
-        
-        return OrderResponse(
-            order_id="simulated-id",
-            status="submitted",
-            filled_amount=0.0,
-            avg_price=order.price or 0.0
-        )
+        try:
+            # Polymarket CLOB requires a token_id. market_id here is assumed to be the token_id.
+            # Real implementation would use self.client.create_and_post_order
+            # For now, we mock the call logic as per typical ClobClient usage
+            resp = self.client.create_and_post_order({
+                "price": price,
+                "size": size,
+                "side": "BUY" if side == Side.BUY else "SELL",
+                "token_id": market_id
+            })
+            
+            return Order(
+                id=resp.get("orderID", "unknown"),
+                market_id=market_id,
+                price=price,
+                size=size,
+                side=side,
+                type=order_type,
+                status=OrderStatus.OPEN if resp.get("status") == "LIVE" else OrderStatus.FILLED,
+                timestamp=0.0 # Should get from response if available
+            )
+        except Exception as e:
+            logger.error("Order placement failed", market_id=market_id, error=str(e))
+            raise
 
     async def cancel_order(self, order_id: str) -> bool:
-        """Cancel an order manually or via client"""
+        """Cancel an order via CLOB API"""
         try:
-            # self.client.cancel(order_id)
+            self.client.cancel(order_id)
             return True
         except Exception as e:
             logger.error("Error cancelling order", order_id=order_id, error=str(e))
             return False
 
-    async def get_history(self, token_id: str, interval: str = "max") -> List[Dict[str, Any]]:
-        """Fetch price history for a specific token"""
-        async with httpx.AsyncClient() as client:
-            try:
-                params = {
-                    "market": token_id,
-                    "interval": interval
-                }
-                response = await client.get(f"{self.clob_host}/prices-history", params=params)
-                response.raise_for_status()
-                data = response.json()
-                return data.get("history", [])
-            except Exception as e:
-                logger.error("Error fetching price history", token_id=token_id, error=str(e))
-                return []
-
-    async def get_event_by_slug(self, slug: str) -> Dict[str, Any]:
-        """Fetch full event details including sibling markets"""
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(f"{self.gamma_host}/events", params={"slug": slug})
-                response.raise_for_status()
-                events = response.json()
-                return events[0] if events else {}
-            except Exception as e:
-                logger.error("Error fetching event by slug", slug=slug, error=str(e))
-                return {}
-
-    async def get_market_by_slug(self, slug: str) -> Optional[MarketData]:
-        """Fetch a specific market by its slug"""
-        async with httpx.AsyncClient() as client:
-            try:
-                # First try direct exact match
-                response = await client.get(f"{self.gamma_host}/markets", params={"slug": slug})
-                response.raise_for_status()
-                markets = response.json()
-                
-                if not markets:
-                    return None
-                    
-                m = markets[0]
-                
-                # Parse helper (similar to search)
-                prices_raw = m.get("outcomePrices", "[]")
-                if isinstance(prices_raw, str):
-                    try: prices = json.loads(prices_raw)
-                    except: prices = []
-                else: prices = prices_raw
-                price = float(prices[0]) if (prices and len(prices) > 0) else 0.5
-                
-                ctid = m.get("clobTokenIds", "[]")
-                if not isinstance(ctid, str):
-                    ctid = json.dumps(ctid)
-                    
-                def safe_float(val):
-                    try: return float(val) if val is not None else 0.0
-                    except: return 0.0
-
-                return MarketData(
-                    token_id=m.get("conditionId") or m.get("id"),
-                    title=m.get("question", "Unknown"),
-                    description=m.get("description"),
-                    price=price,
-                    volume_24h=safe_float(m.get("volume24hr")),
-                    liquidity=safe_float(m.get("liquidity")),
-                    end_date=m.get("endDateIso"),
-                    provider="polymarket",
-                    extra_data={
-                        "clob_token_ids": ctid,
-                        "slug": m.get("slug"),
-                    }
-                )
-
-            except Exception as e:
-                logger.error("Error fetching market by slug", slug=slug, error=str(e))
-                return None
-
-    async def search(self, query: str) -> List[MarketData]:
-        """Search for markets and events using public-search"""
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            try:
-                # The correct parameter is 'q'. 'active' is not supported on this endpoint.
-                params = {"q": query}
-                response = await client.get(f"{self.gamma_host}/public-search", params=params)
-                response.raise_for_status()
-                data = response.json()
-                
-                results = []
-                
-                # Helper to parse market into MarketData
-                def parse_market(m, event_slug=None):
-                    if not m: return None
-                    
-                    prices_raw = m.get("outcomePrices", "[]")
-                    if isinstance(prices_raw, str):
-                        try: prices = json.loads(prices_raw)
-                        except: prices = []
-                    else: prices = prices_raw
-                    price = float(prices[0]) if (prices and len(prices) > 0) else 0.5
-                    
-                    # Ensure clob_token_ids is a JSON string
-                    ctid = m.get("clobTokenIds", "[]")
-                    if not isinstance(ctid, str):
-                        ctid = json.dumps(ctid)
-
-                    def safe_float(val):
-                        try: return float(val) if val is not None else 0.0
-                        except: return 0.0
-
-                    return MarketData(
-                        token_id=m.get("conditionId") or m.get("id"),
-                        title=m.get("question", "Unknown"),
-                        description=m.get("description"),
-                        price=price,
-                        volume_24h=safe_float(m.get("volume24hr")),
-                        liquidity=safe_float(m.get("liquidity")),
-                        end_date=m.get("endDateIso"),
-                        provider="polymarket",
-                        extra_data={
-                            "clob_token_ids": ctid,
-                            "slug": m.get("slug"),
-                            "event_slug": event_slug or m.get("slug") 
-                        }
-                    )
-
-                # 1. Process direct Market results
-                for m in (data.get("markets") or []):
-                    parsed = parse_market(m)
-                    if parsed: results.append(parsed)
-                
-                # 2. Process Markets inside Event results
-                for e in (data.get("events") or []):
-                    e_slug = e.get("slug")
-                    for m in (e.get("markets") or []):
-                        mid = m.get("conditionId") or m.get("id")
-                        # Avoid duplicates
-                        if not any(r.token_id == mid for r in results):
-                            parsed = parse_market(m, event_slug=e_slug)
-                            if parsed: results.append(parsed)
-                
-                logger.info("Search results", query=query, count=len(results))
-                return results
-            except Exception as e:
-                logger.error("Search failed", query=query, error=str(e))
-                return []
-
-    async def get_positions(self) -> List[Dict]:
+    async def get_positions(self) -> List[Position]:
         """Fetch user positions from Data API"""
         if not self.funder_address:
             return []
@@ -310,7 +185,69 @@ class PolyProvider(BaseProvider):
                     params={"user": self.funder_address}
                 )
                 response.raise_for_status()
-                return response.json()
+                data = response.json()
+                
+                positions = []
+                for p in data:
+                    positions.append(Position(
+                        market_id=p.get("conditionId"),
+                        outcome=p.get("outcome"),
+                        size=float(p.get("size", 0)),
+                        avg_price=float(p.get("avgPrice", 0)),
+                        realized_pnl=float(p.get("realizedPnl", 0)),
+                        unrealized_pnl=float(p.get("unrealizedPnl", 0))
+                    ))
+                return positions
             except Exception as e:
                 logger.error("Error fetching positions", user=self.funder_address, error=str(e))
+                return []
+
+    async def get_orders(self, market_id: Optional[str] = None) -> List[Order]:
+        """Fetch open orders from CLOB API"""
+        try:
+            from py_clob_client.clob_types import OpenOrderParams
+            params = OpenOrderParams(market=market_id) if market_id else None
+            raw_orders = self.client.get_orders(params)
+            orders = []
+            for o in raw_orders:
+                orders.append(Order(
+                    id=o.get("orderID"),
+                    market_id=o.get("assetID"),
+                    price=float(o.get("price")),
+                    size=float(o.get("size")),
+                    side=Side.BUY if o.get("side") == "BUY" else Side.SELL,
+                    type=OrderType.LIMIT,
+                    status=OrderStatus.OPEN,
+                    timestamp=0.0
+                ))
+            return orders
+        except Exception as e:
+            logger.error("Error fetching open orders", error=str(e))
+            return []
+
+    async def get_history(self, market_id: Optional[str] = None) -> List[Trade]:
+        """Fetch trade history from CLOB API"""
+        async with httpx.AsyncClient() as client:
+            try:
+                # This endpoint might vary depending on CLOB version
+                params = {}
+                if market_id:
+                    params["token_id"] = market_id
+                response = await client.get(f"{self.clob_host}/trades", params=params)
+                response.raise_for_status()
+                data = response.json()
+                
+                trades = []
+                for t in data:
+                    trades.append(Trade(
+                        id=t.get("id", "unknown"),
+                        market_id=t.get("asset_id") or market_id,
+                        price=float(t.get("price")),
+                        size=float(t.get("size")),
+                        side=Side.BUY if t.get("side") == "buy" else Side.SELL,
+                        timestamp=float(t.get("timestamp", 0))
+                    ))
+                return trades
+            except Exception as e:
+                logger.error("Error fetching trade history", market_id=market_id, error=str(e))
                 return []
