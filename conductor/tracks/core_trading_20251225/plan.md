@@ -28,7 +28,7 @@ Complete the trading and real-time data implementation for Kalshi.
 - [~] Task: Implement comprehensive trading methods in `KalshiProvider`
     - [ ] Task: Write tests for Kalshi order placement and cancellation (using mocks)
     - [ ] Task: Implement `create_order`, `cancel_order`, and `get_orders` in `kalshi.py`
-- [x] Task: Robust Kalshi WebSocket implementation
+- [x] Task: Robust Kalshi WebSocket implementation dc0db22
     - [x] Task: Write tests for Kalshi WebSocket message parsing and reconnection logic
     - [x] Task: Refine `kalshi_ws.py` for real-time orderbook and trade updates
 - [ ] Task: Conductor - User Manual Verification 'Phase 3: Kalshi Integration Refinement' (Protocol in workflow.md)
