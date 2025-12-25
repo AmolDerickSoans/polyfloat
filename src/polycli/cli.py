@@ -9,7 +9,7 @@ from rich.panel import Panel
 from dotenv import load_dotenv, set_key
 
 # Load existing environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 app = typer.Typer(
     help="PolyCLI: Agentic Terminal for Prediction Markets",
@@ -116,6 +116,7 @@ def ensure_credentials():
                 ):
                     set_key(env_file, "POLY_PRIVATE_KEY", shell_key)
                     set_key(env_file, "SKIP_POLY", "false")
+                    load_dotenv(env_file, override=True)
                     console.print("[green]✓ Key imported from shell[/green]")
                     use_shell = True
 
@@ -138,10 +139,12 @@ def ensure_credentials():
                             )
                         set_key(env_file, "POLY_PRIVATE_KEY", key)
                         set_key(env_file, "SKIP_POLY", "false")
+                        load_dotenv(env_file, override=True)
                         os.environ["POLY_PRIVATE_KEY"] = key
                         console.print("[green]✓ Polymarket Key saved[/green]")
                 else:
                     set_key(env_file, "SKIP_POLY", "true")
+                    load_dotenv(env_file, override=True)
                     console.print(
                         "[yellow]Skipping Polymarket setup. Trading disabled.[/yellow]"
                     )
@@ -163,6 +166,7 @@ def ensure_credentials():
                 ):
                     set_key(env_file, "GOOGLE_API_KEY", shell_key)
                     set_key(env_file, "SKIP_GEMINI", "false")
+                    load_dotenv(env_file, override=True)
                     console.print("[green]✓ Key imported from shell[/green]")
                     use_shell = True
 
@@ -181,10 +185,12 @@ def ensure_credentials():
                     if key:
                         set_key(env_file, "GOOGLE_API_KEY", key)
                         set_key(env_file, "SKIP_GEMINI", "false")
+                        load_dotenv(env_file, override=True)
                         os.environ["GOOGLE_API_KEY"] = key
                         console.print("[green]✓ Google Gemini Key saved[/green]")
                 else:
                     set_key(env_file, "SKIP_GEMINI", "true")
+                    load_dotenv(env_file, override=True)
                     console.print(
                         "[yellow]Skipping Gemini setup. AI features disabled.[/yellow]"
                     )
@@ -227,6 +233,7 @@ def ensure_credentials():
                     
                     if has_complete:
                         set_key(env_file, "SKIP_KALSHI", "false")
+                        load_dotenv(env_file, override=True)
                         console.print("[green]✓ Credentials imported from shell[/green]")
                         use_shell = True
                     else:
@@ -253,6 +260,7 @@ def ensure_credentials():
                             set_key(env_file, "KALSHI_EMAIL", email)
                             set_key(env_file, "KALSHI_PASSWORD", password)
                             set_key(env_file, "SKIP_KALSHI", "false")
+                            load_dotenv(env_file, override=True)
                             os.environ["KALSHI_EMAIL"] = email
                             os.environ["KALSHI_PASSWORD"] = password
                             console.print("[green]✓ Kalshi Email/Pass saved[/green]")
@@ -263,6 +271,7 @@ def ensure_credentials():
                             set_key(env_file, "KALSHI_KEY_ID", key_id)
                             set_key(env_file, "KALSHI_PRIVATE_KEY_PATH", path)
                             set_key(env_file, "SKIP_KALSHI", "false")
+                            load_dotenv(env_file, override=True)
                             os.environ["KALSHI_KEY_ID"] = key_id
                             os.environ["KALSHI_PRIVATE_KEY_PATH"] = path
                             console.print(
@@ -270,6 +279,7 @@ def ensure_credentials():
                             )
                 else:
                     set_key(env_file, "SKIP_KALSHI", "true")
+                    load_dotenv(env_file, override=True)
                     console.print(
                         "[yellow]Skipping Kalshi setup. Arbitrage will be limited.[/yellow]"
                     )
@@ -295,7 +305,7 @@ def ensure_credentials():
                           console.print("[bold red]⚠ Warning: API Client initialized but check_connection failed.[/bold red]")
                       
                       # Cleanup
-                      prov.close()
+                      # prov.close() - Removed to avoid shutting down shared pool
                  except Exception as e:
                      console.print(f"[red]Verification Error: {e}[/red]")
 
@@ -376,10 +386,26 @@ def interactive_menu():
 
 
 @app.callback(invoke_without_command=True)
-def main_callback(ctx: typer.Context):
+def main_callback(
+    ctx: typer.Context,
+    poly_key: Optional[str] = typer.Option(None, "--poly-key", help="Polymarket Private Key"),
+    gemini_key: Optional[str] = typer.Option(None, "--gemini-key", help="Gemini API Key"),
+    kalshi_email: Optional[str] = typer.Option(None, "--kalshi-email", help="Kalshi Email"),
+    kalshi_pass: Optional[str] = typer.Option(None, "--kalshi-pass", help="Kalshi Password"),
+    kalshi_key_id: Optional[str] = typer.Option(None, "--kalshi-key-id", help="Kalshi Key ID"),
+    kalshi_pem: Optional[str] = typer.Option(None, "--kalshi-pem", help="Kalshi Private Key Path"),
+):
     """
     PolyCLI Entry Point (v1.0)
     """
+    # Inject Flags into Env (Ephemeral Mode)
+    if poly_key: os.environ["POLY_PRIVATE_KEY"] = poly_key
+    if gemini_key: os.environ["GOOGLE_API_KEY"] = gemini_key
+    if kalshi_email: os.environ["KALSHI_EMAIL"] = kalshi_email
+    if kalshi_pass: os.environ["KALSHI_PASSWORD"] = kalshi_pass
+    if kalshi_key_id: os.environ["KALSHI_KEY_ID"] = kalshi_key_id
+    if kalshi_pem: os.environ["KALSHI_PRIVATE_KEY_PATH"] = kalshi_pem
+
     # Only print header and check envs if not running a help command
     if "--help" not in sys.argv:
         print_header()
