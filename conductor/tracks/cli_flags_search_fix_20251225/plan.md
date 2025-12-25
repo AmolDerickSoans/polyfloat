@@ -8,7 +8,7 @@
 - [x] Task: Implement Persistent Flag Logic (`--save`) 0e92ea0
     - [ ] Add `--save` boolean flag.
     - [ ] Implement logic to write provided flag values to `.env` or `setup_state.json` when `--save` is present.
-- [ ] Task: Verify CLI Flag Precedence & Security
+- [x] Task: Verify CLI Flag Precedence & Security 053c470
     - [ ] Test: Flags override env vars.
     - [ ] Test: Flags + `--save` persists changes.
     - [ ] Test: No flags = fallback to interactive mode/env vars.
