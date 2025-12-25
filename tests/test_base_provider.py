@@ -3,7 +3,9 @@ from polycli.providers.base import BaseProvider
 from polycli.models import Market, OrderBook, Trade, Position, Order, OrderType
 
 class MockProvider(BaseProvider):
-    async def get_markets(self, category=None, limit=100):
+    async def get_events(self, category=None, limit=100):
+        return []
+    async def get_markets(self, event_id=None, category=None, limit=100):
         return []
     async def get_orderbook(self, market_id):
         return None

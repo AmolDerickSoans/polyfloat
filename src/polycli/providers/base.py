@@ -1,13 +1,23 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
-from polycli.models import Market, OrderBook, Trade, Position, Order, Side, OrderType
+from polycli.models import Event, Market, OrderBook, Trade, Position, Order, Side, OrderType
 
 class BaseProvider(ABC):
     """Standard interface for prediction market providers"""
     
     @abstractmethod
+    async def get_events(
+        self,
+        category: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Event]:
+        """Fetch available events"""
+        pass
+
+    @abstractmethod
     async def get_markets(
         self,
+        event_id: Optional[str] = None,
         category: Optional[str] = None,
         limit: int = 100
     ) -> List[Market]:

@@ -1,17 +1,32 @@
 import pytest
 from pydantic import ValidationError
-from polycli.models import Market, OrderBook, Trade, Position, Order, MarketStatus, Side, OrderType, OrderStatus
+from polycli.models import Event, Market, OrderBook, Trade, Position, Order, MarketStatus, Side, OrderType, OrderStatus
+
+def test_event_model():
+    data = {
+        "id": "event-123",
+        "provider": "polymarket",
+        "title": "US Presidential Election 2024",
+        "description": "Who will win the election?",
+        "status": "active",
+        "markets": []
+    }
+    event = Event(**data)
+    assert event.id == "event-123"
+    assert event.title == "US Presidential Election 2024"
 
 def test_market_model():
     data = {
         "id": "poly-123",
+        "event_id": "event-123",
         "provider": "polymarket",
-        "question": "Will Bitcoin reach $100k in 2025?",
+        "question": "Will Trump win?",
         "status": "active",
         "outcomes": ["Yes", "No"]
     }
     market = Market(**data)
     assert market.id == "poly-123"
+    assert market.event_id == "event-123"
     assert market.status == MarketStatus.ACTIVE
     assert "Yes" in market.outcomes
 

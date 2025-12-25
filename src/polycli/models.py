@@ -22,8 +22,18 @@ class OrderStatus(str, Enum):
     CANCELLED = "cancelled"
     PARTIAL = "partial"
 
+class Event(BaseModel):
+    id: str
+    provider: str
+    title: str
+    description: str
+    status: MarketStatus
+    markets: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
 class Market(BaseModel):
     id: str
+    event_id: str
     provider: str
     question: str
     status: MarketStatus
