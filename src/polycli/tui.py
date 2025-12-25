@@ -2,7 +2,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, DataTable, Static, Label, Input, Button, ContentSwitcher, RadioSet, RadioButton
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 from textual.containers import Container, Horizontal, Vertical, Grid
 from textual.reactive import reactive
 from textual import work, on
@@ -112,6 +112,67 @@ class OrderbookDepth(Static):
         title = f"Orderbook Depth Δ={imbalance:+.0f}"
         return Panel(table, title=title, border_style="blue")
 
+class MarketMetadata(Static):
+    """Widget to display key market data points in a table"""
+    market: reactive[Optional[MarketData]] = reactive(None)
+
+    def render(self) -> RenderableType:
+        if not self.market:
+            return Panel("Metadata: No market selected", border_style="dim")
+        
+        m = self.market
+        extra = m.extra_data or {}
+        
+        table = Table(show_header=False, expand=True, box=None)
+        table.add_column("Key", style="bold cyan", width=15)
+        table.add_column("Value", style="bold white")
+        
+        # 8 Most Relevant Data Points
+        # 1. Ticker
+        table.add_row("Ticker", f"[green]{m.token_id}[/]")
+        
+        # 2. Status
+        status = extra.get("status", "N/A").upper()
+        s_color = "green" if status == "OPEN" else "red"
+        table.add_row("Status", f"[{s_color}]{status}[/]")
+        
+        # 3. Last Price
+        lp = extra.get("last_price", 0)
+        table.add_row("Last Price", f"[yellow]${lp/100.0:.2f}[/]" if lp else "N/A")
+        
+        # 4. 24h Volume
+        table.add_row("24h Volume", f"[bold white]{m.volume_24h:,.0f}[/] contracts")
+        
+        # 5. Liquidity
+        liq = m.liquidity / 100.0 # Assuming cents based on previous inspection
+        table.add_row("Liquidity", f"[bold green]${liq:,.2f}[/]")
+        
+        # 6. Open Interest
+        oi = extra.get("open_interest", 0)
+        table.add_row("Open Interest", f"[bold magenta]{oi:,.0f}[/] contracts")
+        
+        # 7. Result
+        res = extra.get("result", "N/A") or "In Progress"
+        table.add_row("Result", f"[bold blue]{res}[/]")
+        
+        # 8. Closing In
+        from datetime import datetime, timezone
+        end_str = "N/A"
+        if m.end_date:
+            try:
+                # 2030-01-01T15:00:00Z
+                dt = datetime.fromisoformat(m.end_date.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                diff = dt - now
+                if diff.days > 0:
+                    end_str = f"{diff.days}d {diff.seconds // 3600}h"
+                else:
+                    end_str = f"{diff.seconds // 3600}h { (diff.seconds % 3600) // 60 }m"
+            except: pass
+        table.add_row("Closing In", f"[bold yellow]{end_str}[/]")
+
+        return Panel(table, title="Market Metrics", border_style="cyan")
+
 class MarketDetail(Vertical):
     """Focused view of a single market"""
     market = reactive(None)
@@ -119,6 +180,7 @@ class MarketDetail(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Label("Select a market", id="detail_title")
+        yield MarketMetadata(id="market_metadata")
         yield OrderbookDepth(id="depth_wall")
 
     def watch_market(self, market: Optional[MarketData]) -> None:
@@ -141,6 +203,12 @@ class MarketDetail(Vertical):
             multi_series = MultiLineSeries(title=market.title)
             
             if market.provider == "kalshi":
+                # 0. Fetch deeper details if needed
+                full_m = await kalshi.get_market(market.token_id)
+                if full_m:
+                    market = full_m
+                self.query_one("#market_metadata", MarketMetadata).market = market
+                
                 # 1. Fetch History for Kalshi
                 candles = await kalshi.get_candlesticks(market.token_id)
                 if candles:
@@ -393,6 +461,7 @@ class DashboardApp(App):
     .title { text-style: bold; color: #58a6ff; background: #161b22; padding: 0 1; text-align: center; }
     DataTable { height: 1fr; background: #0d1117; border: none; }
     PriceChart { height: 30; border: solid #30363d; margin: 1 0; }
+    MarketMetadata { height: 14; border: solid #30363d; margin-bottom: 1; }
     OrderbookDepth { height: 20; border: solid #30363d; }
     .info_box { margin: 1; padding: 1; border: tall #58a6ff; text-align: center; }
     #modal_dialog { background: #161b22; border: solid cyan; padding: 2; width: 40; height: 15; align: center middle; }
@@ -501,8 +570,20 @@ class DashboardApp(App):
     @work(exclusive=True)
     async def update_markets(self) -> None:
         poly = PolyProvider()
+        kalshi = KalshiProvider()
         try:
-            self.all_markets = await poly.get_markets(limit=250)
+            tasks = []
+            if self.selected_provider in ["polymarket", "all"]:
+                tasks.append(poly.get_markets(limit=250))
+            if self.selected_provider in ["kalshi", "all"]:
+                tasks.append(kalshi.get_markets(limit=250))
+            
+            gathered = await asyncio.gather(*tasks, return_exceptions=True)
+            self.all_markets = []
+            for res in gathered:
+                if isinstance(res, list):
+                    self.all_markets.extend(res)
+            
             self.filter_markets("")
         except Exception as e:
             self.notify(f"Market Load Error: {e}", severity="error")
@@ -570,6 +651,10 @@ class DashboardApp(App):
             table.clear()
             if not results:
                 table.add_row("[red]No results found", "", "", "")
+                # If Kalshi failed, we might have an exception in gathered_results
+                for res in gathered_results:
+                    if isinstance(res, Exception):
+                        self.notify(f"Provider Error: {res}", severity="error")
                 return
             
             # Limit results

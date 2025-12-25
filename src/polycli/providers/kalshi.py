@@ -10,12 +10,29 @@ from kalshi_python.rest import RESTClientObject
 class KalshiProvider(BaseProvider):
     """Kalshi provider implementation using official SDK"""
     
-    def __init__(self, host: str = "https://trading-api.kalshi.com/trade-api/v2"):
-        self.host = host
+    def __init__(self, host: Optional[str] = None):
+        self.host = host or os.getenv("KALSHI_API_HOST") or "https://api.elections.kalshi.com/trade-api/v2"
         self.config = kalshi_python.Configuration()
-        self.config.host = host
+        self.config.host = self.host
         self.api_instance = None
         self._authenticate()
+
+    def close(self):
+        """Explicitly close the internal multiprocessing pool in the Kalshi ApiClient"""
+        if self.api_instance and hasattr(self.api_instance, "api_client"):
+            try:
+                # The underlying REST client has a pool that needs closing
+                if hasattr(self.api_instance.api_client, "pool"):
+                    self.api_instance.api_client.pool.close()
+                    self.api_instance.api_client.pool.join()
+            except Exception as e:
+                print(f"DEBUG: Error closing Kalshi pool: {e}")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     def _authenticate(self):
         """Initialize the API instance with available credentials"""
@@ -28,6 +45,7 @@ class KalshiProvider(BaseProvider):
         # Priority: RSA Key (Production) > Email/Password (Legacy/Sandbox)
         if key_id and (key_path or key_content):
             # RSA AUTHENTICATION
+            print(f"DEBUG: Authenticating with Key ID: {key_id}")
             actual_path = key_path
             
             # If explicit content provided, use that (via temp file if necessary)
@@ -52,10 +70,8 @@ class KalshiProvider(BaseProvider):
                         print(f"WARNING: Private key {actual_path} is too open. Please `chmod 600 {actual_path}` for security.")
 
             try:
-                # Update Host to new endpoint
-                self.config.host = "https://api.elections.kalshi.com/trade-api/v2"
-                
                 # Create ApiInstance FIRST
+                print(f"DEBUG: Using Host: {self.host}")
                 self.api_instance = kalshi_python.ApiInstance(configuration=self.config)
                 
                 # Get the internal client
@@ -90,16 +106,16 @@ class KalshiProvider(BaseProvider):
                                 q_p = {k: v for k, v in query_params.items() if v is not None}
                                 if q_p: q_str = "?" + urlencode(q_p)
                                 
-                        full_relative_path = "/trade-api/v2" + final_path + q_str
-                        
-                        # Let's ensure we match what they expect.
-                        if not final_path.startswith("/trade-api/v2"):
-                            full_relative_path = "/trade-api/v2" + final_path + q_str
+                        # Path construction: 
+                        # resource_path is usually e.g. /markets
+                        # We want /trade-api/v2/markets
+                        if not resource_path.startswith("/trade-api/v2"):
+                            full_relative_path = "/trade-api/v2" + resource_path + q_str
                         else:
-                            full_relative_path = final_path + q_str
+                            full_relative_path = resource_path + q_str
 
                         # DEBUG
-                        # print(f"DEBUG: Signing {method} {full_relative_path}")
+                        print(f"DEBUG: Signing {method} {full_relative_path}")
                         
                         # 2. Sign
                         payload = body
@@ -161,9 +177,13 @@ class KalshiProvider(BaseProvider):
             # get_balance often fails with 401 on some endpoints/keys, 
             # use get_public_events manual call which is proven robust.
             events = await self.get_public_events(limit=1)
+            if not events:
+                return False
             return True
         except Exception as e:
             print(f"Connection Check Error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     async def get_markets(
@@ -202,13 +222,53 @@ class KalshiProvider(BaseProvider):
                     liquidity=float(getattr(m, "liquidity", 0) or 0),
                     end_date=str(getattr(m, "close_time", "")),
                     provider="kalshi",
-                    extra_data={"subtitle": getattr(m, "subtitle", "")}
+                    extra_data={
+                        "subtitle": getattr(m, "subtitle", ""),
+                        "event_ticker": getattr(m, "event_ticker", "")
+                    }
                 )
                 for m in markets
             ]
         except Exception as e:
             # Fallback for unexpected SDK behavior or auth errors
             return []
+
+    async def get_market(self, ticker: str) -> Optional[MarketData]:
+        """Fetch full details for a specific market ticker"""
+        if not self.api_instance:
+            return None
+        try:
+            loop = asyncio.get_event_loop()
+            resp = await loop.run_in_executor(
+                None,
+                lambda: self.api_instance.get_market(ticker)
+            )
+            m = getattr(resp, "market", None)
+            if not m: return None
+            
+            return MarketData(
+                id=m.ticker,
+                token_id=m.ticker,
+                title=getattr(m, "title", m.ticker),
+                description=getattr(m, "subtitle", ""),
+                price=(getattr(m, "yes_bid", 50) or 50) / 100.0,
+                volume_24h=float(getattr(m, "volume_24h", 0) or 0),
+                liquidity=float(getattr(m, "liquidity", 0) or 0),
+                end_date=str(getattr(m, "close_time", "")),
+                provider="kalshi",
+                extra_data={
+                    "subtitle": getattr(m, "subtitle", ""),
+                    "status": getattr(m, "status", "open"),
+                    "last_price": getattr(m, "last_price", 0),
+                    "open_interest": getattr(m, "open_interest", 0),
+                    "result": getattr(m, "result", ""),
+                    "category": getattr(m, "category", ""),
+                    "event_ticker": getattr(m, "event_ticker", "")
+                }
+            )
+        except Exception as e:
+            print(f"Get Market Error: {e}")
+            return None
 
     async def get_public_events(self, limit: int = 100) -> List[Dict]:
         """Fetch high-level events (Series) from Kalshi V2 API"""
@@ -236,12 +296,13 @@ class KalshiProvider(BaseProvider):
             data = json.loads(http_resp.data.decode('utf-8'))
             return data.get("events", [])
         except Exception as e:
-            print(f"Fetch Events Error: {e}")
-            return []
+            raise e
 
     async def search(self, query: str) -> List[MarketData]:
         """Search Kalshi markets with combined discovery (Direct Markets + Events)"""
-        if not self.api_instance: return []
+        if not self.api_instance: 
+            print("DEBUG: Search failed because api_instance is None")
+            return []
         
         query_lo = query.lower()
         results_map = {} # token_id -> MarketData to avoid duplicates
