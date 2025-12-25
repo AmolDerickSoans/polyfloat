@@ -70,6 +70,33 @@ class PolyProvider(BaseProvider):
                 logger.error("Error fetching events from Gamma", error=str(e))
                 return []
 
+    async def search(self, query: str) -> List[Market]:
+        """Search for markets via Gamma API"""
+        async with httpx.AsyncClient() as client:
+            try:
+                params = {"q": query, "active": "true", "limit": 20}
+                response = await client.get(f"{self.gamma_host}/events", params=params)
+                response.raise_for_status()
+                raw_events = response.json()
+                
+                markets = []
+                for e in raw_events:
+                    # Flatten markets from events
+                    for m in e.get("markets", []):
+                        markets.append(Market(
+                            id=m.get("conditionId") or m.get("id"),
+                            event_id=str(e.get("id")),
+                            provider="polymarket",
+                            question=m.get("question", e.get("title")),
+                            status=MarketStatus.ACTIVE,
+                            outcomes=m.get("outcomes", []),
+                            metadata=m
+                        ))
+                return markets
+            except Exception as e:
+                logger.error("Error searching Polymarket", query=query, error=repr(e))
+                return []
+
     async def get_markets(
         self,
         event_id: Optional[str] = None,

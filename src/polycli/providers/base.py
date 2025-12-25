@@ -23,6 +23,11 @@ class BaseProvider(ABC):
     ) -> List[Market]:
         """Fetch available markets"""
         pass
+
+    @abstractmethod
+    async def search(self, query: str) -> List[Market]:
+        """Search for markets by query string"""
+        pass
     
     @abstractmethod
     async def get_orderbook(self, market_id: str) -> OrderBook:
