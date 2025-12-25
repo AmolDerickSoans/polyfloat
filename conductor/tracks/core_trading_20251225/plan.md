@@ -36,7 +36,7 @@ Complete the trading and real-time data implementation for Kalshi.
 ## Phase 4: Integration & History
 Finalize history retrieval and cross-market consistency.
 
-- [x] Task: Implement unified trade and fill history retrieval
+- [x] Task: Implement unified trade and fill history retrieval 213425e
     - [x] Task: Write tests for history aggregation across providers
     - [x] Task: Implement `get_history` in providers and unified entry point
 - [ ] Task: Final verification of real-time data consistency
