@@ -14,7 +14,7 @@
     - [ ] Test: No flags = fallback to interactive mode/env vars.
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: CLI Credential Flags' (Protocol in workflow.md)
 
-## Phase 2: Diagnostics & RCA
+## Phase 2: Diagnostics & RCA [checkpoint: 3be7f4e]
 - [x] Task: Create reproduction script for TUI search failure
     - [ ] Create `repro_search_fail.py` to simulate `tui.py` search logic without the UI loop.
     - [ ] Verify `Action: Focus Search` -> `Action: Input Text` -> `Update Market List` flow.
@@ -22,7 +22,7 @@
     - [ ] Audit `src/polycli/providers/kalshi.py` `search_markets` method.
     - [ ] Audit `src/polycli/providers/polymarket.py` `search_markets` method.
     - [ ] Write unit tests to verify raw API search results are correctly mapped to `Market` models.
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Diagnostics & RCA' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 2: Diagnostics & RCA' (Protocol in workflow.md)
 
 ## Phase 3: TUI Search Fix
 - [ ] Task: Implement TUI Search Logic Fix
