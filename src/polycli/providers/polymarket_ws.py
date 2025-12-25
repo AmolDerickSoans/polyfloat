@@ -3,6 +3,7 @@ import json
 from typing import Callable, Dict, Any, List, Optional, Set
 import websockets
 import structlog
+from polycli.models import OrderBook, PriceLevel, Trade, Side
 
 logger = structlog.get_logger()
 
@@ -61,12 +62,11 @@ class PolymarketWebSocket:
     async def _handle_commands(self):
         """Process subscription commands from the queue while connected"""
         while self.running:
-            # Check if there is a command, but don't block forever if ws closes
             try:
-                # Use a timeout or just wait for the queue
                 cmd = await self._command_queue.get()
                 if cmd["type"] == "subscribe":
                     await self._send_subscription(cmd["token_id"])
+                # Handle unsubs if the API supports it
                 self._command_queue.task_done()
             except asyncio.CancelledError:
                 break
@@ -96,7 +96,11 @@ class PolymarketWebSocket:
                     try:
                         async for message in ws:
                             data = json.loads(message)
-                            await self._dispatch(data)
+                            if isinstance(data, list):
+                                for item in data:
+                                    await self._dispatch(item)
+                            else:
+                                await self._dispatch(data)
                     except websockets.ConnectionClosed:
                         logger.warning("WebSocket connection closed")
                     finally:
@@ -105,21 +109,23 @@ class PolymarketWebSocket:
                         
             except Exception as e:
                 logger.error("WebSocket loop error", error=str(e))
+                if not self.running:
+                    break
                 await asyncio.sleep(reconnect_delay)
                 reconnect_delay = min(reconnect_delay * 2, max_reconnect_delay)
 
     async def _dispatch(self, data: Dict[str, Any]):
         """Route incoming messages to the correct callbacks"""
-        # Polymarket 'market' messages usually contain asset_id or related fields
+        # Polymarket CLOB WS often uses 'asset_id' in its data payloads
         asset_id = data.get("asset_id") or data.get("token_id")
         
         if not asset_id:
-            # Some versions use assets_ids list in response or event-specific formats
             return
 
         callbacks = self.subscriptions.get(asset_id, set())
         for cb in callbacks:
             try:
+                # We pass the raw data for now, higher level widgets can wrap it in models
                 if asyncio.iscoroutinefunction(cb):
                     await cb(data)
                 else:
