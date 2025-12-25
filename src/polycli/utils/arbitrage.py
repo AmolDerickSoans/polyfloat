@@ -1,5 +1,7 @@
-from typing import Dict, List, Optional
+import asyncio
+from typing import Dict, List, Optional, Any
 from pydantic import BaseModel
+from polycli.models import Trade
 
 class ArbOpportunity(BaseModel):
     market_name: str
@@ -71,3 +73,16 @@ def find_opportunities(matches: List[Dict], min_edge: float = 0.02, fee_poly: fl
             ))
             
     return sorted(opportunities, key=lambda x: x.edge, reverse=True)
+
+async def aggregate_history(providers: List[Any], market_id: Optional[str] = None) -> List[Trade]:
+    """Aggregate trade history from multiple providers and sort by timestamp"""
+    tasks = [p.get_history(market_id) for p in providers]
+    results = await asyncio.gather(*tasks)
+    
+    all_trades = []
+    for trades in results:
+        all_trades.extend(trades)
+        
+    all_trades.sort(key=lambda x: x.timestamp, reverse=True)
+    return all_trades
+
