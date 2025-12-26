@@ -279,7 +279,7 @@ class DashboardApp(App):
     watchlist: Set[str] = set()
     selected_provider: reactive[str] = reactive("polymarket")
     
-    CSS_PATH = "tui.css" # Assume external CSS for brevity or keep internal
+    CSS_PATH = "tui.css"
     BINDINGS = [
         ("q", "quit", "Quit"), ("r", "refresh", "Refresh"),
         ("b", "buy", "Buy"), ("s", "sell", "Sell"),
@@ -321,15 +321,87 @@ class DashboardApp(App):
     @work(exclusive=True)
     async def update_markets(self) -> None:
         try:
-            m = await self.poly.get_markets()
-            table = self.query_one("#market_list", DataTable); table.clear()
-            for market in m:
-                table.add_row(market.question[:20], "0.50", "POLY", key=market.id)
-                self.markets_cache[market.id] = market
-        except Exception as e: self.notify(str(e))
+            table = self.query_one("#market_list", DataTable)
+            table.clear()
+            table.add_row("Searching...", "", "")
+
+            query = ""
+            try:
+                query = self.query_one("#search_box", Input).value.strip()
+            except Exception: pass
+
+            tasks = []
+            if self.selected_provider in ["polymarket", "all"]:
+                if query: tasks.append(self.poly.search(query))
+                else: tasks.append(self.poly.get_markets())
+            if self.selected_provider in ["kalshi", "all"]:
+                if query: tasks.append(self.kalshi.search(query))
+                else: tasks.append(self.kalshi.get_markets())
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            table.clear()
+            
+            self.markets_cache.clear()
+            found_any = False
+            for res in results:
+                if isinstance(res, list):
+                    for m in res:
+                        found_any = True
+                        table.add_row(m.question[:40], "0.50", m.provider.upper()[:4], key=m.id)
+                        self.markets_cache[m.id] = m
+                elif isinstance(res, Exception):
+                    self.notify(f"Provider Error: {res}", severity="error")
+
+            if not found_any:
+                table.add_row("No results found", "", "")
+
+        except Exception as e: 
+            self.notify(str(e))
+            try:
+                self.query_one("#market_list", DataTable).clear()
+            except: pass
+
+    @on(Input.Submitted, "#search_box")
+    def on_search_submit(self):
+        self.update_markets()
+        
+    @on(RadioSet.Changed, "#provider_radios")
+    def on_provider_change(self, event: RadioSet.Changed):
+        if event.pressed.id == "p_poly": self.selected_provider = "polymarket"
+        elif event.pressed.id == "p_kalshi": self.selected_provider = "kalshi"
+        elif event.pressed.id == "p_both": self.selected_provider = "all"
+        self.update_markets()
 
     def action_show_portfolio(self) -> None: self.query_one("#switcher").current = "portfolio"
     def action_show_dash(self) -> None: self.query_one("#switcher").current = "dashboard"
+    def action_show_arb(self) -> None: self.notify("Arbitrage Scanner coming soon")
+
+    def action_refresh(self) -> None: self.update_markets()
+    def action_focus_search(self) -> None: self.query_one("#search_box").focus()
+
+    def action_buy(self) -> None:
+        m = self.query_one("#market_focus", MarketDetail).market
+        if m: self.push_screen(QuickOrderModal(m, Side.BUY), self.handle_order)
+    
+    def action_sell(self) -> None:
+        m = self.query_one("#market_focus", MarketDetail).market
+        if m: self.push_screen(QuickOrderModal(m, Side.SELL), self.handle_order)
+
+    def action_toggle_watchlist(self) -> None:
+        m = self.query_one("#market_focus", MarketDetail).market
+        if m:
+            if m.id in self.watchlist: self.watchlist.remove(m.id); self.notify("Removed")
+            else: self.watchlist.add(m.id); self.notify("Added")
+
+    async def handle_order(self, order_data: Optional[Dict]) -> None:
+        if order_data:
+            m = self.query_one("#market_focus", MarketDetail).market
+            if not m: return
+            try:
+                prov = self.kalshi if m.provider == "kalshi" else self.poly
+                res = await prov.place_order(market_id=m.id, side=order_data["side"], size=order_data["amount"], price=0.50)
+                self.notify(f"Order Sent: {res.id[:8]}")
+            except Exception as e: self.notify(f"Order Fail: {e}", severity="error")
 
     @on(DataTable.RowSelected, "#market_list")
     def select_market(self, event: DataTable.RowSelected) -> None:
