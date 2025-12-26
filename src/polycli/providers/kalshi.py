@@ -55,7 +55,36 @@ class KalshiProvider(BaseProvider):
                 original_call_api = internal_client.call_api
                 
                 def signed_call_api(*args, **kwargs):
-                    # In a real implementation this would perform the signing
+                    try:
+                        # Extract params based on standard swagger-codegen signature:
+                        # (resource_path, method, path_params, query_params, header_params, body, ...)
+                        path = args[0] if len(args) > 0 else kwargs.get("resource_path")
+                        method = args[1] if len(args) > 1 else kwargs.get("method")
+                        
+                        body = None
+                        if len(args) > 5:
+                            body = args[5]
+                        elif "body" in kwargs:
+                            body = kwargs["body"]
+                        
+                        # Generate headers
+                        if path and method:
+                            auth_headers = signer.get_headers(method, path, body)
+                            
+                            # Merge into header_params
+                            # Check args index 4
+                            if len(args) > 4:
+                                args_list = list(args)
+                                existing = args_list[4] or {}
+                                args_list[4] = {**existing, **auth_headers}
+                                args = tuple(args_list)
+                            else:
+                                existing = kwargs.get("header_params") or {}
+                                kwargs["header_params"] = {**existing, **auth_headers}
+                    except Exception as e:
+                        logger.error("Signing Error", error=str(e))
+                        # Proceed without signing if error (likely to fail but better than crash)
+
                     return original_call_api(*args, **kwargs)
                 
                 internal_client.call_api = signed_call_api
@@ -72,8 +101,12 @@ class KalshiProvider(BaseProvider):
             return False
         try:
             # use get_public_events manual call which is proven robust.
-            events = await self.get_public_events(limit=1)
+            # Add timeout to prevent hangs
+            events = await asyncio.wait_for(self.get_public_events(limit=1), timeout=10.0)
             return len(events) > 0
+        except asyncio.TimeoutError:
+            logger.error("Connection Check Timeout")
+            return False
         except Exception as e:
             logger.error("Connection Check Error", error=str(e))
             return False
