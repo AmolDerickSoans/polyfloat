@@ -25,7 +25,7 @@
 - [x] Task: Conductor - User Manual Verification 'Phase 2: Diagnostics & RCA' (Protocol in workflow.md)
 
 ## Phase 3: TUI Search Fix
-- [ ] Task: Implement TUI Search Logic Fix
+- [x] Task: Implement TUI Search Logic Fix 6d6eeb8
     - [ ] Refactor `DashboardApp.update_markets` to handle search queries correctly.
     - [ ] Ensure proper threading/async handling to prevent UI freezing during remote search.
     - [ ] Update `tui.py` to display "No results found" or "Searching..." states.
