@@ -24,7 +24,7 @@
     - [ ] Write unit tests to verify raw API search results are correctly mapped to `Market` models.
 - [x] Task: Conductor - User Manual Verification 'Phase 2: Diagnostics & RCA' (Protocol in workflow.md)
 
-## Phase 3: TUI Search Fix
+## Phase 3: TUI Search Fix [checkpoint: f263d87]
 - [x] Task: Implement TUI Search Logic Fix 6d6eeb8
     - [ ] Refactor `DashboardApp.update_markets` to handle search queries correctly.
     - [ ] Ensure proper threading/async handling to prevent UI freezing during remote search.
@@ -32,4 +32,4 @@
 - [x] Task: Verify Fix with Reproduction Script & Tests a57c0aa
     - [ ] Run `repro_search_fail.py` to confirm fix.
     - [ ] Add regression test in `tests/test_tui_integration.py`.
-- [ ] Task: Conductor - User Manual Verification 'Phase 3: TUI Search Fix' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 3: TUI Search Fix' (Protocol in workflow.md)
