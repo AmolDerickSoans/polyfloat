@@ -29,7 +29,7 @@
     - [ ] Refactor `DashboardApp.update_markets` to handle search queries correctly.
     - [ ] Ensure proper threading/async handling to prevent UI freezing during remote search.
     - [ ] Update `tui.py` to display "No results found" or "Searching..." states.
-- [ ] Task: Verify Fix with Reproduction Script & Tests
+- [x] Task: Verify Fix with Reproduction Script & Tests a57c0aa
     - [ ] Run `repro_search_fail.py` to confirm fix.
     - [ ] Add regression test in `tests/test_tui_integration.py`.
 - [ ] Task: Conductor - User Manual Verification 'Phase 3: TUI Search Fix' (Protocol in workflow.md)
