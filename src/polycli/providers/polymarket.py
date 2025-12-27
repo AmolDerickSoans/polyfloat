@@ -23,11 +23,13 @@ class PolyProvider(BaseProvider):
         clob_host: str = "https://clob.polymarket.com",
         gamma_host: str = "https://gamma-api.polymarket.com",
         data_host: str = "https://data-api.polymarket.com",
-        chain_id: int = 137
+        chain_id: int = 137,
+        timeout: float = 15.0  # Add configurable timeout
     ):
         self.clob_host = clob_host
         self.gamma_host = gamma_host
         self.data_host = data_host
+        self.timeout = timeout  # Store for reuse
         
         self.private_key = private_key or os.getenv("POLY_PRIVATE_KEY")
         self.funder_address = funder_address or os.getenv("POLY_FUNDER_ADDRESS")
@@ -70,32 +72,131 @@ class PolyProvider(BaseProvider):
                 logger.error("Error fetching events from Gamma", error=str(e))
                 return []
 
-    async def search(self, query: str) -> List[Market]:
-        """Search for markets via Gamma API"""
-        async with httpx.AsyncClient() as client:
+    async def search(
+        self, 
+        query: str, 
+        max_results: int = 20,
+        include_closed: bool = False,
+        debug: bool = False
+    ) -> List[Market]:
+        """
+        Search for markets via Gamma API with pagination support
+        
+        Args:
+            query: Search query string
+            max_results: Maximum number of results to return
+            include_closed: Whether to include closed markets
+            debug: Whether to print debug information
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
-                params = {"q": query, "active": "true", "limit": 20}
-                response = await client.get(f"{self.gamma_host}/events", params=params)
-                response.raise_for_status()
-                raw_events = response.json()
-                
                 markets = []
-                for e in raw_events:
-                    # Flatten markets from events
-                    for m in e.get("markets", []):
-                        markets.append(Market(
-                            id=m.get("conditionId") or m.get("id"),
-                            event_id=str(e.get("id")),
-                            provider="polymarket",
-                            question=m.get("question", e.get("title")),
-                            status=MarketStatus.ACTIVE,
-                            outcomes=m.get("outcomes", []),
-                            metadata=m
-                        ))
-                return markets
+                page = 1
+                
+                while len(markets) < max_results:
+                    params = {
+                        "q": query,
+                        "limit_per_type": min(50, max_results - len(markets)),
+                        "page": page,
+                        "search_tags": False,
+                        "search_profiles": False,
+                        "events_status": "active" if not include_closed else None
+                    }
+                    
+                    # Remove None values
+                    params = {k: v for k, v in params.items() if v is not None}
+                    
+                    if debug:
+                        print(f"[DEBUG] Request URL: {self.gamma_host}/public-search")
+                        print(f"[DEBUG] Params: {params}")
+                    
+                    response = await client.get(
+                        f"{self.gamma_host}/public-search",
+                        params=params
+                    )
+                    
+                    if debug:
+                        print(f"[DEBUG] Response status: {response.status_code}")
+                        print(f"[DEBUG] Response headers: {dict(response.headers)}")
+                    
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    if debug:
+                        print(f"[DEBUG] Events in response: {len(data.get('events', []))}")
+                    
+                    # Extract markets from events
+                    batch = []
+                    for event in data.get("events", []):
+                        event_markets = event.get("markets", [])
+                        if debug:
+                            print(f"[DEBUG] Event '{event.get('title', 'N/A')[:40]}' has {len(event_markets)} markets")
+                        
+                        for market_data in event_markets:
+                            batch.append(Market(
+                                id=market_data.get("conditionId") or market_data.get("id"),
+                                event_id=str(event.get("id", "")),
+                                provider="polymarket",
+                                question=market_data.get("question") or event.get("title", "Unknown"),
+                                status=MarketStatus.ACTIVE if market_data.get("active") else MarketStatus.CLOSED,
+                                outcomes=self._parse_outcomes(market_data.get("outcomes")),
+                                metadata=market_data
+                            ))
+                    
+                    markets.extend(batch)
+                    
+                    if debug:
+                        print(f"[DEBUG] Page {page}: Added {len(batch)} markets (total: {len(markets)})")
+                    
+                    # Check if there are more results
+                    pagination = data.get("pagination", {})
+                    if not pagination.get("hasMore", False) or not batch:
+                        if debug:
+                            print(f"[DEBUG] Stopping pagination: hasMore={pagination.get('hasMore')}, batch_empty={not batch}")
+                        break
+                    
+                    page += 1
+                
+                return markets[:max_results]
+                
+            except httpx.TimeoutException:
+                logger.error("Polymarket search timeout", query=query, timeout=self.timeout)
+                if debug:
+                    print(f"[DEBUG] Timeout after {self.timeout}s")
+                return []
+            except httpx.HTTPStatusError as e:
+                logger.error("Polymarket HTTP error", query=query, status=e.response.status_code, detail=e.response.text)
+                if debug:
+                    print(f"[DEBUG] HTTP Error {e.response.status_code}: {e.response.text}")
+                return []
             except Exception as e:
                 logger.error("Error searching Polymarket", query=query, error=repr(e))
+                if debug:
+                    import traceback
+                    print(f"[DEBUG] Exception: {traceback.format_exc()}")
                 return []
+
+    def _parse_outcomes(self, outcomes_data) -> List[str]:
+        """Parse outcomes from various formats in Gamma API response"""
+        if not outcomes_data:
+            return ["Yes", "No"]  # Default binary outcomes
+        
+        # Handle string format (JSON string)
+        if isinstance(outcomes_data, str):
+            try:
+                import json
+                parsed = json.loads(outcomes_data)
+                if isinstance(parsed, list):
+                    return parsed
+            except (json.JSONDecodeError, ValueError):
+                # If it's a simple comma-separated string
+                return [o.strip() for o in outcomes_data.split(",")]
+        
+        # Handle list format
+        if isinstance(outcomes_data, list):
+            return outcomes_data
+        
+        return ["Yes", "No"]  # Fallback
 
     async def get_markets(
         self,
@@ -127,7 +228,7 @@ class PolyProvider(BaseProvider):
                         provider="polymarket",
                         question=m.get("question", "Unknown Market"),
                         status=MarketStatus.ACTIVE if m.get("active") else MarketStatus.CLOSED,
-                        outcomes=m.get("outcomes", []),
+                        outcomes=self._parse_outcomes(m.get("outcomes")),
                         metadata=m
                     ))
                 return markets

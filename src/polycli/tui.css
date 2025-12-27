@@ -1,0 +1,36 @@
+Screen { background: #0d1117; color: #c9d1d9; }
+#main_grid { layout: grid; grid-size: 2; grid-columns: 3fr 7fr; height: 1fr; }
+#market_sidebar { border-right: tall #30363d; height: 100%; }
+#detail_panel { padding: 1; height: 100%; }
+MarketDetail { height: 100%; }
+NewsTicker { height: 3; background: #161b22; border-top: solid #58a6ff; padding: 1; }
+.title { text-style: bold; color: #58a6ff; background: #161b22; padding: 0 1; text-align: center; }
+DataTable { height: 1fr; background: #0d1117; border: none; }
+PriceChart { height: 30; border: solid #30363d; margin: 1 0; }
+MarketMetadata { height: 14; border: solid #30363d; margin-bottom: 1; }
+OrderbookDepth { height: 20; border: solid #30363d; }
+.info_box { margin: 1; padding: 1; border: tall #58a6ff; text-align: center; }
+#modal_dialog { background: #161b22; border: solid cyan; padding: 2; width: 40; height: 15; align: center middle; }
+#modal_dialog .item { height: 3; margin-top: 1; }
+#search_box { margin: 1; border: solid #30363d; border-title-align: left; }
+
+/* Arbitrage Styles */
+ArbitrageScanner { height: 100%; }
+#arb_header { background: #161b22; color: #58a6ff; text-align: center; text-style: bold; }
+#arb_controls { height: 3; margin: 1; align: center middle; }
+#arb_controls Button { margin: 0 1; }
+#arb_table { height: 1fr; border: solid #30363d; }
+
+/* Portfolio Styles */
+PortfolioView { padding: 1; }
+.p_title { text-style: bold; color: #58a6ff; background: #161b22; margin-top: 1; }
+#p_controls { height: 3; margin-top: 1; }
+
+/* Time & Sales */
+TimeAndSales { height: 20; border: solid #30363d; }
+.section_title { background: #161b22; color: yellow; text-align: center; }
+
+#provider_radios { height: 1; border: none; margin: 0; padding: 0; width: 100%; layout: horizontal; }
+RadioSet > RadioButton { width: auto; margin-right: 1; }
+
+#search_box { margin-top: 0; margin-bottom: 1; height: 3; border: solid #30363d; border-title-align: left; }

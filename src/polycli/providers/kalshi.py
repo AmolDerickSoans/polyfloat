@@ -166,7 +166,7 @@ class KalshiProvider(BaseProvider):
 
         try:
             loop = asyncio.get_event_loop()
-            kwargs = {"status": "open", "limit": limit}
+            kwargs = {"status": "open", "limit": limit, "_request_timeout": 10}
             if event_id:
                 kwargs["event_ticker"] = event_id
                 
@@ -199,7 +199,7 @@ class KalshiProvider(BaseProvider):
             loop = asyncio.get_event_loop()
             resp = await loop.run_in_executor(
                 None, 
-                lambda: self.api_instance.get_market_orderbook(market_id)
+                lambda: self.api_instance.get_market_orderbook(market_id, _request_timeout=10)
             )
             
             obs = getattr(resp, "order_book", None) or resp
@@ -259,7 +259,7 @@ class KalshiProvider(BaseProvider):
             loop = asyncio.get_event_loop()
             resp = await loop.run_in_executor(
                 None,
-                lambda: self.api_instance.create_order(req)
+                lambda: self.api_instance.create_order(req, _request_timeout=10)
             )
             
             return Order(
@@ -282,7 +282,7 @@ class KalshiProvider(BaseProvider):
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 None,
-                lambda: self.api_instance.cancel_order(order_id)
+                lambda: self.api_instance.cancel_order(order_id, _request_timeout=10)
             )
             return True
         except Exception as e:
@@ -296,7 +296,7 @@ class KalshiProvider(BaseProvider):
             loop = asyncio.get_event_loop()
             resp = await loop.run_in_executor(
                 None,
-                self.api_instance.get_portfolio_positions
+                lambda: self.api_instance.get_portfolio_positions(_request_timeout=10)
             )
             
             raw_pos = getattr(resp, "market_positions", [])
@@ -326,7 +326,7 @@ class KalshiProvider(BaseProvider):
             # Note: SDK endpoint might vary, using get_orders with status=open
             response = await loop.run_in_executor(
                 None,
-                lambda: self.api_instance.get_orders(status="open", ticker=market_id)
+                lambda: self.api_instance.get_orders(status="open", ticker=market_id, _request_timeout=10)
             )
             raw_orders = getattr(response, "orders", [])
             orders = []
@@ -353,7 +353,7 @@ class KalshiProvider(BaseProvider):
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
-                lambda: self.api_instance.get_trades(ticker=market_id, limit=100)
+                lambda: self.api_instance.get_trades(ticker=market_id, limit=100, _request_timeout=10)
             )
             raw_trades = getattr(response, "trades", [])
             trades = []
@@ -383,7 +383,8 @@ class KalshiProvider(BaseProvider):
                     query_params=[("status", "open"), ("limit", limit)],
                     auth_settings=["bearerAuth"],
                     _return_http_data_only=False,
-                    _preload_content=False
+                    _preload_content=False,
+                    _request_timeout=10
                 )
             )
             http_resp = resp[0]
