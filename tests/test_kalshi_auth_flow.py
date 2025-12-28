@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 import os
 import sys
+import asyncio
 
 # Mock kalshi_python before importing provider
 mock_kalshi = MagicMock()
@@ -91,3 +92,22 @@ def test_rsa_signing_injection(mock_env, mock_signer):
     assert "WAL-Auth" in headers, "WAL-Auth header missing from downstream call"
     assert headers["WAL-Auth"] == "signed_header_value"
     assert headers["Existing"] == "Header"
+
+@pytest.mark.asyncio
+async def test_check_connection_timeout(mock_env):
+    # Setup mock to hang
+    async def slow_get_public_events(*args, **kwargs):
+        await asyncio.sleep(2.0)
+        return []
+    
+    provider = KalshiProvider()
+    
+    with patch.object(provider, "get_public_events", side_effect=slow_get_public_events):
+        # We set a short timeout in the check_connection or mock it
+        # Actually check_connection has 10.0s hardcoded.
+        # Let's patch it to be shorter for the test if possible, or just wait.
+        # To keep test fast, we can patch asyncio.wait_for in that context.
+        
+        with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+            result = await provider.check_connection()
+            assert result is False
