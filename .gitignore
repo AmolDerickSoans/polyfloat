@@ -8,6 +8,8 @@ htmlcov/
 dist/
 build/
 *.egg-info/
-.env
+
 trading_state.db
 .polycli/
+conductor/
+docs/
