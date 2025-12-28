@@ -23,6 +23,11 @@ from rich.table import Table
 from rich.bar import Bar
 from rich.console import RenderableType
 from rich.text import Text
+from polycli.storage.redis_store import RedisStore
+from polycli.storage.sqlite_store import SQLiteStore
+from polycli.tui_agent_panel import AgentStatusPanel
+from polycli.tui_agent_chat import AgentChatInterface
+from polycli.agents import SupervisorAgent
 
 class NewsTicker(Static):
     """Scrolling news ticker at the bottom of the screen"""
@@ -147,8 +152,9 @@ class MarketDetail(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Label("Select a market", id="detail_title")
-        yield MarketMetadata(id="market_metadata")
-        yield OrderbookDepth(id="depth_wall")
+        with Horizontal():
+            yield MarketMetadata(id="market_metadata")
+            yield OrderbookDepth(id="depth_wall")
 
     def watch_market(self, market: Optional[Market]) -> None:
         if market:
@@ -286,36 +292,52 @@ class DashboardApp(App):
         ("w", "toggle_watchlist", "Watchlist"), ("/", "focus_search", "Search"),
         ("a", "show_arb", "Arbitrage"), ("d", "show_dash", "Dashboard"),
         ("p", "show_portfolio", "Portfolio"),
+        ("escape", "escape", "Back/Cancel"), ("enter", "enter", "Send Command"),
     ]
 
-    def compose(self) -> ComposeResult:
-        yield Header()
-        with ContentSwitcher(initial="dashboard", id="switcher"):
-            with Container(id="dashboard"):
-                 with Container(id="main_grid"):
-                    with Vertical(id="market_sidebar"):
-                        yield Label("MARKETS", classes="title")
-                        with RadioSet(id="provider_radios"):
-                             yield RadioButton("Polymarket", value=True, id="p_poly")
-                             yield RadioButton("Kalshi", id="p_kalshi")
-                             yield RadioButton("Both", id="p_both")
-                        yield Input(placeholder="Search...", id="search_box")
-                        yield DataTable(id="market_list")
-                        yield DataTable(id="watch_list", classes="title")
-                    with Vertical(id="detail_panel"):
-                        yield MarketDetail(id="market_focus")
-                        yield TimeAndSales(id="tape_view")
-            with Container(id="portfolio"): yield PortfolioView()
-        yield NewsTicker()
-        yield Footer()
-
-    def on_mount(self) -> None:
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.redis_store = RedisStore(prefix="polycli:")
+        self.sqlite_store = SQLiteStore(":memory:")
+        self.supervisor = SupervisorAgent(redis_store=self.redis_store, sqlite_store=self.sqlite_store)
         self.poly = PolyProvider()
         self.kalshi = KalshiProvider()
-        self.ws_client = PolymarketWebSocket(); self.ws_client.start()
-        self.kalshi_ws = KalshiWebSocket(); self.call_later(self.kalshi_ws.connect)
+        self.ws_client = PolymarketWebSocket()
+        self.kalshi_ws = KalshiWebSocket()
+    
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with Horizontal():
+            # Left column (30%) - Controls & Agents
+            with Vertical(id="left_column", classes="left-panel"):
+                yield Label("Market Source", classes="section_title")
+                with RadioSet(id="provider_radios"):
+                    yield RadioButton("Polymarket", id="p_poly", value=True)
+                    yield RadioButton("Kalshi", id="p_kalshi")
+                    yield RadioButton("Both", id="p_both")
+                
+                yield Label("Search", classes="section_title")
+                yield Input(placeholder="Search markets...", id="search_box", classes="search-input")
+                
+                yield Label("Agent Session", classes="section_title")
+                yield AgentChatInterface(id="chat_interface", redis_store=self.redis_store, supervisor=self.supervisor)
+            
+            # Right column (70%) - Data & Details
+            with Vertical(id="right_column", classes="right-panel"):
+                yield Label("Market List", classes="section_title")
+                yield DataTable(id="market_list")
+                
+                yield Label("Market Focus", classes="section_title")
+                yield MarketDetail(id="market_focus", classes="market-detail")
         
-        mlist = self.query_one("#market_list", DataTable); mlist.add_columns("Market", "Px", "Src")
+        yield Footer()
+    
+    def on_mount(self) -> None:
+        self.ws_client.start()
+        self.call_later(self.kalshi_ws.connect)
+        
+        mlist = self.query_one("#market_list", DataTable)
+        mlist.add_columns("Market", "Px", "Src")
         self.update_markets()
 
     @work(exclusive=True)

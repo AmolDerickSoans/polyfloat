@@ -1,11 +1,17 @@
 import asyncio
 import json
+import os
 from datetime import datetime
 from textual.widgets import Static, TextArea
 from textual.containers import Vertical
+from textual.binding import Binding
 
 class AgentChatInterface(Static):
     """Large multi-line text input for agent interaction"""
+    
+    BINDINGS = [
+        Binding("ctrl+enter", "submit_chat", "Send Message"),
+    ]
 
     def __init__(self, redis_store, supervisor, **kwargs):
         super().__init__(**kwargs)
@@ -32,7 +38,16 @@ class AgentChatInterface(Static):
     def on_mount(self) -> None:
         """Subscribe to command results on mount"""
         self.pubsub_task = asyncio.create_task(self._subscribe_command_results())
-        self._show_prompt()
+        
+        # Check for API Key
+        if not os.environ.get("GOOGLE_API_KEY"):
+            self._add_conversation_message(
+                "system", 
+                "[bold red]⚠️ SETUP REQUIRED:[/bold red] GOOGLE_API_KEY not found.\n"
+                "Please set GOOGLE_API_KEY in your .env file or environment variables to enable agents."
+            )
+        else:
+            self._show_prompt()
 
     async def _subscribe_command_results(self):
         """Subscribe to Redis for command execution results"""
@@ -51,7 +66,7 @@ class AgentChatInterface(Static):
     def _show_prompt(self) -> None:
         """Show conversation or prompt based on mode"""
         if not self.conversation_history and not self.showing_history:
-            self.update("[dim italic]> Type natural language commands or questions to interact with agents...[/dim italic]")
+            self.update("[dim italic]> Type natural language commands... (Ctrl+Enter to send)[/dim italic]")
         else:
             content = self._format_conversation()
             self.update(content)
@@ -69,6 +84,8 @@ class AgentChatInterface(Static):
             
             if role == "user":
                 line = "[dim]{}[/dim] [bold cyan]>[/bold cyan] {}".format(timestamp, content)
+            elif role == "system":
+                line = "[dim]{}[/dim] {}".format(timestamp, content)
             else:
                 line = "[dim]{}[/dim] [bold green]<[/bold green] {}".format(timestamp, content)
             
@@ -101,12 +118,7 @@ class AgentChatInterface(Static):
             if self.showing_history:
                 self.return_to_chat()
 
-    def on_button_press(self, event) -> None:
-        """Handle button presses"""
-        if event.button.id == "send":
-            self._send_input()
-
-    def _send_input(self) -> None:
+    def action_submit_chat(self) -> None:
         """Send current input to supervisor"""
         text_area = self.query_one("#chat_input")
         if text_area:

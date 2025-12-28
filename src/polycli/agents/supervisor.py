@@ -1,22 +1,23 @@
 import time
 from typing import Dict, Any, List, Optional
+import json
 import structlog
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from ..base import BaseAgent
-from ..state import SupervisorState, Task, AgentMetadata
+from polycli.agents.base import BaseAgent
+from polycli.agents.state import SupervisorState, Task, AgentMetadata
 
 logger = structlog.get_logger()
 
 
 class SupervisorAgent(BaseAgent):
     """Central coordinator for managing specialist agents and routing tasks"""
-    
+
     def __init__(
         self,
-        redis_store,
-        sqlite_store,
+        redis_store=None,
+        sqlite_store=None,
         config: Optional[Dict[str, Any]] = None
     ):
         super().__init__(
@@ -33,7 +34,7 @@ class SupervisorAgent(BaseAgent):
         self.pending_tasks: List[Task] = []
         
         logger.info("Supervisor Agent initialized")
-    
+
     def _register_tools(self):
         """Register supervisor-specific tools"""
         pass
@@ -91,8 +92,18 @@ class SupervisorAgent(BaseAgent):
                 if age > 60:
                     health_data["status"] = "UNHEALTHY"
                     health_data["last_error"] = "No heartbeat for 60s"
+                else:
+                    health_data["status"] = "RUNNING"
+                    health_data["last_error"] = None
                 
                 self.agent_health[agent_id] = health_data
+            else:
+                # Agent not responding
+                self.agent_health[agent_id] = {
+                    "status": "UNRESPONSIVE",
+                    "last_update": time.time(),
+                    "last_error": "No health data"
+                }
         
         logger.debug("Agent health updated", agents_count=len(self.agent_health))
     
@@ -108,6 +119,7 @@ class SupervisorAgent(BaseAgent):
                 
                 if agent_id not in self.task_assignments:
                     self.task_assignments[agent_id] = []
+                
                 self.task_assignments[agent_id].append(task["task_id"])
                 
                 # Send task to agent via Redis
@@ -122,6 +134,7 @@ class SupervisorAgent(BaseAgent):
             else:
                 # No suitable agent found, move to end of queue
                 self.pending_tasks.append(self.pending_tasks.pop(0))
+                logger.warning("No suitable agent for task", task_id=task["task_id"])
                 break
     
     async def _route_single_task(self, task: Task) -> Dict[str, Any]:
@@ -147,136 +160,106 @@ class SupervisorAgent(BaseAgent):
         """Determine which agent should handle the task"""
         task_type = task.get("task_type", task.get("inputs", {}).get("task_type", ""))
         
-        # Task routing rules
-        routing_map = {
+        # Simple routing rules
+        routing_rules = {
             "SCAN_MARKETS": "market_observer",
-            "MONITOR_MARKET": "market_observer",
-            "DETECT_ARB": "arb_scout",
-            "ANALYZE_SENTIMENT": "researcher",
-            "PLAN_TRADE": "strategy_planner",
-            "EXECUTE_TRADE": "execution_agent",
+            "ADD_WATCHLIST": "market_observer",
+            "REMOVE_WATCHLIST": "market_observer",
+            "GET_MARKET_DATA": "market_observer",
+            "SUBSCRIBE_MARKET": "market_observer",
+            "CHECK_ANOMALIES": "market_observer",
+            "CREATE_ALERT": "alert_manager",
+            "CHECK_ALERTS": "alert_manager",
+            "CHECK_THRESHOLDS": "alert_manager",
+            "SEND_NOTIFICATION": "alert_manager",
+            "ACKNOWLEDGE_ALERT": "alert_manager",
+            "RESOLVE_ALERT": "alert_manager",
+            "UPDATE_RULE": "alert_manager",
+            "GET_ALERTS": "alert_manager",
+            "ADD_CHANNEL": "alert_manager",
+            "REMOVE_CHANNEL": "alert_manager",
+            "CHECK_LIMITS": "risk_manager",
+            "UPDATE_POSITIONS": "risk_manager",
             "CHECK_RISK": "risk_manager",
-            "TRACK_POSITION": "position_tracker",
-            "MONITOR_SENTIMENT": "sentiment_analyzer",
-            "CHECK_ALERTS": "alert_manager"
+            "CALCULATE_VAR": "risk_manager",
+            "PLACE_ORDER": "execution_agent",
+            "CANCEL_ORDER": "execution_agent",
+            "RECONCILE_FILLS": "execution_agent",
+            "GET_POSITIONS": "execution_agent",
+            "GET_BALANCES": "execution_agent",
+            "GET_TASK_HISTORY": "supervisor",
+            "DETECT_ARB": "arb_scout",
+            "SCAN_ARB": "arb_scout",
         }
         
-        target_agent = routing_map.get(task_type)
-        
-        # Check if agent is healthy and active
-        if target_agent and target_agent in self.active_agents:
-            health = self.agent_health.get(target_agent, {})
-            if health.get("status") == "RUNNING":
-                return target_agent
-        
-        logger.warning(
-            "No suitable agent for task",
-            task_type=task_type,
-            target_agent=target_agent,
-            active_agents=self.active_agents
-        )
-        return None
+        return routing_rules.get(task_type)
     
     async def _check_agent_health(self, task: Task) -> Dict[str, Any]:
-        """Check health of a specific agent"""
-        inputs = task.get("inputs", {})
-        agent_id = inputs.get("agent_id")
+        """Check health of specific agent"""
+        agent_id = task.get("inputs", {}).get("agent_id")
         
-        if not agent_id:
-            return {"error": "agent_id not provided", "success": False}
-        
-        health_data = self.agent_health.get(agent_id)
-        
-        if health_data:
-            return {"success": True, "health": health_data}
+        if agent_id in self.agent_health:
+            health = self.agent_health[agent_id]
+            status = health.get("status", "UNKNOWN")
+            
+            return {
+                "success": True,
+                "agent_id": agent_id,
+                "status": status,
+                "last_error": health.get("last_error")
+            }
         else:
             return {
                 "success": False,
+                "agent_id": agent_id,
+                "status": "NOT_REGISTERED",
                 "error": f"Agent {agent_id} not registered"
             }
     
-    async def _restart_agent(self, task: Task) -> Dict[str, Any]:
-        """Restart a failed agent"""
-        inputs = task.get("inputs", {})
-        agent_id = inputs.get("agent_id")
-        
-        if not agent_id:
-            return {"error": "agent_id not provided", "success": False}
-        
-        # Signal agent to restart via Redis
-        if self.redis:
-            await self.redis.set(f"agent:restart:{agent_id}", "restart")
-        
-        logger.info("Agent restart requested", agent_id=agent_id)
-        
-        return {"success": True, "agent_id": agent_id}
-    
     async def _register_agent(self, task: Task) -> Dict[str, Any]:
-        """Register a new agent"""
-        inputs = task.get("inputs", {})
-        agent_id = inputs.get("agent_id")
-        agent_type = inputs.get("agent_type")
+        """Register a new specialist agent"""
+        agent_id = task.get("inputs", {}).get("agent_id")
+        agent_type = task.get("inputs", {}).get("agent_type", "")
         
-        if not agent_id:
-            return {"error": "agent_id not provided", "success": False}
-        
-        if agent_id not in self.active_agents:
+        if agent_id and agent_id not in self.active_agents:
             self.active_agents.append(agent_id)
-            
-            # Initialize health tracking
             self.agent_health[agent_id] = {
                 "status": "RUNNING",
-                "registered_at": time.time(),
-                "last_update": time.time(),
-                "tasks_completed": 0,
-                "errors": 0
+                "last_update": time.time()
             }
-            
-            # Store registration
-            if self.redis:
-                await self.redis.hset(
-                    f"agent:health:{agent_id}",
-                    "status",
-                    "RUNNING"
-                )
-                await self.redis.hset(
-                    f"agent:health:{agent_id}",
-                    "registered_at",
-                    time.time()
-                )
             
             logger.info("Agent registered", agent_id=agent_id, agent_type=agent_type)
             
-            return {"success": True, "agent_id": agent_id}
+            return {"success": True, "agent_id": agent_id, "agent_type": agent_type}
         else:
-            return {"error": "Agent already registered", "success": False}
+            return {"success": False, "error": "Agent already registered"}
     
     async def _unregister_agent(self, task: Task) -> Dict[str, Any]:
-        """Unregister an agent"""
-        inputs = task.get("inputs", {})
-        agent_id = inputs.get("agent_id")
-        
-        if not agent_id:
-            return {"error": "agent_id not provided", "success": False}
+        """Unregister a specialist agent"""
+        agent_id = task.get("inputs", {}).get("agent_id")
         
         if agent_id in self.active_agents:
             self.active_agents.remove(agent_id)
-            
             if agent_id in self.agent_health:
                 del self.agent_health[agent_id]
-            
-            if agent_id in self.task_assignments:
-                del self.task_assignments[agent_id]
-            
-            # Remove from Redis
-            if self.redis:
-                await self.redis.delete(f"agent:health:{agent_id}")
             
             logger.info("Agent unregistered", agent_id=agent_id)
             
             return {"success": True, "agent_id": agent_id}
         else:
-            return {"error": "Agent not registered", "success": False}
+            return {"success": False, "error": "Agent not registered"}
+    
+    async def _restart_agent(self, task: Task) -> Dict[str, Any]:
+        """Restart an agent"""
+        agent_id = task.get("inputs", {}).get("agent_id")
+        
+        logger.info("Agent restart requested", agent_id=agent_id)
+        
+        # Unregister and re-register to restart
+        await self._unregister_agent(task)
+        result = await self._register_agent(task)
+        
+        return result
     
     async def send_heartbeat(self):
         """Send heartbeat for supervisor"""
@@ -288,27 +271,11 @@ class SupervisorAgent(BaseAgent):
         }
         
         if self.redis:
-            await self.redis.hset(
-                f"agent:health:{self.agent_id}",
-                "status",
-                "RUNNING"
-            )
-            await self.redis.hset(
-                f"agent:health:{self.agent_id}",
-                "last_update",
-                time.time()
-            )
-            await self.redis.hset(
-                f"agent:health:{self.agent_id}",
-                "active_agents",
-                len(self.active_agents)
-            )
-            await self.redis.hset(
-                f"agent:health:{self.agent_id}",
-                "pending_tasks",
-                len(self.pending_tasks)
-            )
-    
+            await self.redis.hset("agent:health:supervisor", "status", "RUNNING")
+            await self.redis.hset("agent:health:supervisor", "last_update", health_data["last_update"])
+            await self.redis.hset("agent:health:supervisor", "active_agents", health_data["active_agents"])
+            await self.redis.hset("agent:health:supervisor", "pending_tasks", health_data["pending_tasks"])
+
     async def get_summary(self) -> Dict[str, Any]:
         """Get supervisor summary"""
         return {
@@ -318,4 +285,25 @@ class SupervisorAgent(BaseAgent):
             "agent_health": self.agent_health,
             "pending_tasks": len(self.pending_tasks),
             "task_assignments": self.task_assignments
+        }
+    
+    async def route_command(self, command: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Route natural language or structured commands to agents"""
+        logger.info("Routing command", command=command, args=args)
+        
+        # Simple routing for now - process as CHAT task
+        result = f"Command received: {command}"
+        if args:
+            result += f" with args: {args}"
+        
+        # Publish result for TUI
+        if self.redis:
+            await self.redis.publish("command:results", json.dumps({
+                "command": command,
+                "result": result
+            }))
+        
+        return {
+            "success": True,
+            "result": result
         }

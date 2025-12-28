@@ -5,8 +5,8 @@ import structlog
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from ..base import BaseAgent
-from ..state import Task, AgentExecutionState
+from .base import BaseAgent
+from .state import Task, AgentExecutionState
 
 logger = structlog.get_logger()
 
