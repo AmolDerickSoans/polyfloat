@@ -43,6 +43,19 @@ AgentChatInterface {
     margin-bottom: 1;
 }
 
+#provider_radios_container {
+    height: auto;
+}
+
+#provider_radios {
+    layout: horizontal;
+    height: auto;
+}
+
+#provider_radios RadioButton {
+    margin-right: 2;
+}
+
 .section_title {
     background: #30363d;
     color: white;
@@ -51,7 +64,8 @@ AgentChatInterface {
 }
 
 #market_list {
-    height: 1fr;
+    height: 15;
+    min-height: 10;
 }
 
 .market-detail {

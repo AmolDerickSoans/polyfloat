@@ -165,6 +165,9 @@ class MarketDetail(Vertical):
     async def setup_market(self, market: Market) -> None:
         """Fetch static data and handle WS subscription"""
         try:
+            # Update metadata widget
+            self.query_one("#market_metadata", MarketMetadata).market = market
+            
             multi_series = MultiLineSeries(title=market.question)
             
             if market.provider == "kalshi":
@@ -186,9 +189,10 @@ class MarketDetail(Vertical):
 
             else:
                 # Polymarket Logic
-                # (Polymarket-specific history and OB setup)
-                ctids = extra = market.metadata.get("clobTokenIds", [])
-                if isinstance(ctids, str): ctids = json.loads(ctids)
+                extra = market.metadata or {}
+                ctids = extra.get("clobTokenIds", [])
+                if isinstance(ctids, str): 
+                    ctids = json.loads(ctids)
                 
                 if ctids:
                     tid = ctids[0]
@@ -311,22 +315,23 @@ class DashboardApp(App):
             # Left column (30%) - Controls & Agents
             with Vertical(id="left_column", classes="left-panel"):
                 yield Label("Market Source", classes="section_title")
-                with RadioSet(id="provider_radios"):
-                    yield RadioButton("Polymarket", id="p_poly", value=True)
-                    yield RadioButton("Kalshi", id="p_kalshi")
-                    yield RadioButton("Both", id="p_both")
+                with Horizontal(id="provider_radios_container"):
+                    with RadioSet(id="provider_radios"):
+                        yield RadioButton("Polymarket", id="p_poly", value=True)
+                        yield RadioButton("Kalshi", id="p_kalshi")
+                        yield RadioButton("Both", id="p_both")
                 
                 yield Label("Search", classes="section_title")
                 yield Input(placeholder="Search markets...", id="search_box", classes="search-input")
+                
+                yield Label("Market List", classes="section_title")
+                yield DataTable(id="market_list")
                 
                 yield Label("Agent Session", classes="section_title")
                 yield AgentChatInterface(id="chat_interface", redis_store=self.redis_store, supervisor=self.supervisor)
             
             # Right column (70%) - Data & Details
             with Vertical(id="right_column", classes="right-panel"):
-                yield Label("Market List", classes="section_title")
-                yield DataTable(id="market_list")
-                
                 yield Label("Market Focus", classes="section_title")
                 yield MarketDetail(id="market_focus", classes="market-detail")
         
