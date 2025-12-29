@@ -2,12 +2,12 @@
 
 This plan follows a TDD approach to rebuild the agent system, explicitly porting logic from the official Polymarket reference code (`docs/polymarketagent/`) while adapting it for the TUI and multi-provider support.
 
-## Phase 1: Provider Abstraction & Base Refactoring
+## Phase 1: Provider Abstraction & Base Refactoring [checkpoint: 87c47bd]
 - [x] Task: Define `BaseProvider` abstract interface in `src/polycli/providers/base.py` (Methods: `get_markets`, `get_news`, `place_order`) 376c205
 - [x] Task: Refactor `PolyProvider` to implement `BaseProvider` 9200013
 - [x] Task: Refactor `KalshiProvider` to implement `BaseProvider` fc3baab
 - [x] Task: Update `BaseAgent` in `src/polycli/agents/base.py` to use `BaseProvider` instead of direct provider calls 2e03fb6
-- [~] Task: Conductor - User Manual Verification 'Phase 1: Provider Abstraction' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 1: Provider Abstraction' (Protocol in workflow.md) 87c47bd
 
 ## Phase 2: External Data Stack (Porting Reference Connectors)
 - [ ] Task: Port `agents/connectors/chroma.py` from reference to `src/polycli/agents/tools/chroma.py` (ChromaDB Integration)
