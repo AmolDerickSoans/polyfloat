@@ -21,11 +21,11 @@ This plan follows a TDD approach to rebuild the agent system, explicitly porting
 - [x] Task: Integrate `ExecutorAgent` with `ChromaConnector` and `SearchConnector` 5076369
 - [x] Task: Conductor - User Manual Verification 'Phase 3: Executor Agent' (Protocol in workflow.md) 78fe875
 
-## Phase 4: Specialist Agents (Porting Trader & Creator)
-- [ ] Task: Implement `TraderAgent` in `src/polycli/agents/trader.py`, porting `one_best_trade` logic from reference `agents/application/trade.py`
-- [ ] Task: Implement `CreatorAgent` in `src/polycli/agents/creator.py`, porting logic from reference `agents/application/creator.py` (with Kalshi disable check)
-- [ ] Task: Refactor `SupervisorAgent` to become the specialized Orchestrator that manages this new Trio
-- [ ] Task: Conductor - User Manual Verification 'Phase 4: Specialist Agents' (Protocol in workflow.md)
+## Phase 4: Specialist Agents (Porting Trader & Creator) [checkpoint: 2a0f002]
+- [x] Task: Implement `TraderAgent` in `src/polycli/agents/trader.py`, porting `one_best_trade` logic from reference `agents/application/trade.py` 7f65eeb
+- [x] Task: Implement `CreatorAgent` in `src/polycli/agents/creator.py`, porting logic from reference `agents/application/creator.py` (with Kalshi disable check) 7f65eeb
+- [x] Task: Refactor `SupervisorAgent` to become the specialized Orchestrator that manages this new Trio 7f65eeb
+- [x] Task: Conductor - User Manual Verification 'Phase 4: Specialist Agents' (Protocol in workflow.md) 2a0f002
 
 ## Phase 5: TUI Integration & Autonomous Modes
 - [ ] Task: Update `AgentChatInterface` to render "Trade Proposal" events as UI cards
