@@ -65,3 +65,12 @@ class BaseProvider(ABC):
     async def get_history(self, market_id: Optional[str] = None) -> List[Trade]:
         """Get user's trade history"""
         pass
+
+    @abstractmethod
+    async def get_news(
+        self,
+        query: Optional[str] = None,
+        limit: int = 10
+    ) -> List[Any]:
+        """Fetch market-related news"""
+        pass
