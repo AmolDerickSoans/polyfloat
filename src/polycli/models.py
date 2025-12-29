@@ -76,6 +76,20 @@ class Position(BaseModel):
     realized_pnl: float = 0.0
     unrealized_pnl: float = 0.0
 
+class Source(BaseModel):
+    id: Optional[str] = None
+    name: Optional[str] = None
+
+class Article(BaseModel):
+    source: Optional[Source] = None
+    author: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    url: Optional[str] = None
+    urlToImage: Optional[str] = None
+    publishedAt: Optional[str] = None
+    content: Optional[str] = None
+
 @dataclass
 class PricePoint:
     t: float
