@@ -1,0 +1,30 @@
+[KALSHI AUTH] key_id=0248916e-2f36-4245-830b-a0931d6fd387, path=/Users/amoldericksoans/Documents/polyfloat/private.pem
+2025-12-25 17:41:29,547 WARNING Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectTimeoutError(<HTTPSConnection(host='api.elections.kalshi.com', port=443) at 0x104a7df90>, 'Connection to api.elections.kalshi.com timed out. (connect timeout=None)')': /trade-api/v2/events?status=open&limit=1
+2025-12-25 17:43:59,639 WARNING Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectTimeoutError(<HTTPSConnection(host='api.elections.kalshi.com', port=443) at 0x104a916d0>, 'Connection to api.elections.kalshi.com timed out. (connect timeout=None)')': /trade-api/v2/events?status=open&limit=1
+2025-12-25 17:46:29,657 WARNING Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectTimeoutError(<HTTPSConnection(host='api.elections.kalshi.com', port=443) at 0x104a91c90>, 'Connection to api.elections.kalshi.com timed out. (connect timeout=None)')': /trade-api/v2/events?status=open&limit=1
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.11/3.11.14_1/Frameworks/Python.framework/Versions/3.11/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.14_1/Frameworks/Python.framework/Versions/3.11/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/Users/amoldericksoans/Documents/polyfloat/verify_fix_rca.py", line 20, in verify
+  File "/Users/amoldericksoans/Documents/polyfloat/src/polycli/providers/kalshi.py", line 75, in check_connection
+    events = await self.get_public_events(limit=1)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amoldericksoans/Documents/polyfloat/src/polycli/providers/kalshi.py", line 329, in get_public_events
+    resp = await loop.run_in_executor(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/amoldericksoans/Documents/polyfloat/verify_fix_rca.py", line 28, in <module>
+  File "/opt/homebrew/Cellar/python@3.11/3.11.14_1/Frameworks/Python.framework/Versions/3.11/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.14_1/Frameworks/Python.framework/Versions/3.11/lib/python3.11/asyncio/runners.py", line 123, in run
+    raise KeyboardInterrupt()
+KeyboardInterrupt

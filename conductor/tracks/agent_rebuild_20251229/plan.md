@@ -6,8 +6,8 @@ This plan follows a TDD approach to rebuild the agent system, explicitly porting
 - [x] Task: Define `BaseProvider` abstract interface in `src/polycli/providers/base.py` (Methods: `get_markets`, `get_news`, `place_order`) 376c205
 - [x] Task: Refactor `PolyProvider` to implement `BaseProvider` 9200013
 - [x] Task: Refactor `KalshiProvider` to implement `BaseProvider` fc3baab
-- [~] Task: Update `BaseAgent` in `src/polycli/agents/base.py` to use `BaseProvider` instead of direct provider calls
-- [ ] Task: Conductor - User Manual Verification 'Phase 1: Provider Abstraction' (Protocol in workflow.md)
+- [x] Task: Update `BaseAgent` in `src/polycli/agents/base.py` to use `BaseProvider` instead of direct provider calls 2e03fb6
+- [~] Task: Conductor - User Manual Verification 'Phase 1: Provider Abstraction' (Protocol in workflow.md)
 
 ## Phase 2: External Data Stack (Porting Reference Connectors)
 - [ ] Task: Port `agents/connectors/chroma.py` from reference to `src/polycli/agents/tools/chroma.py` (ChromaDB Integration)

@@ -13,6 +13,7 @@ Agentic CLI/TUI terminal for prediction markets (Polymarket + Kalshi).
 
 ## Key Features
 - **Unified Market Interface:** A single CLI/TUI to interact with multiple prediction markets simultaneously.
+- **Flexible Configuration:** Support for both interactive setup and CLI flags for credential management, enabling easy automation and ephemeral usage.
 - **Advanced Agent Capabilities:**
     - **Low-Latency Streams:** High-frequency WebSocket integration for rapid agent response.
     - **Safety & Risk Management:** Integrated "Safety Rails" to enforce trade limits and exposure caps.

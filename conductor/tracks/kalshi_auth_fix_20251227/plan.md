@@ -13,4 +13,4 @@
 - [x] Task: Verify Authentication with Mock
     - [x] Create `tests/test_kalshi_auth_flow.py` to mock `original_call_api` and verify `signed_call_api` injects headers.
     - [x] Verify `WAL-Auth` header format.
-- [ ] Task: Conductor - User Manual Verification (Protocol in workflow.md)
+- [~] Task: Conductor - User Manual Verification (Protocol in workflow.md)

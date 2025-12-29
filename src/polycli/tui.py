@@ -417,6 +417,37 @@ class MarketDetail(Vertical):
                     logger.error("Kalshi WebSocket subscription failed", error=str(e))
                     # Non-critical, continue
 
+                # ===== CHART DATA FETCHING (KALSHI) =====
+                self.app.notify("📊 Fetching chart data...", severity="information")
+
+                multi_series = MultiLineSeries(title=market.question)
+
+                candles = await self.app.kalshi.get_candlesticks(
+                    market.id, period="hour", limit=100
+                )
+                if candles:
+                    series = PriceSeries(
+                        name="Yes", color="#2ecc71", points=candles, max_size=1000
+                    )
+                    multi_series.add_trace(series)
+                    self.app.notify(
+                        f"✓ {len(candles)} candles loaded", severity="information"
+                    )
+
+                    metadata = {
+                        "volume_24h": market.metadata.get("_volume_24h", 0),
+                        "liquidity": market.metadata.get("_liquidity", 0),
+                        "end_date": market.metadata.get("_close_time")
+                        or market.metadata.get("endDateIso"),
+                        "description": market.question,
+                        "is_watched": market.id in self.app.watchlist,
+                        "token_id": market.id,
+                    }
+                    ChartManager().plot(multi_series, metadata=metadata)
+                else:
+                    self.app.notify("⚠ No chart data available", severity="warning")
+                # AGENTS: DO NOT DELETE THIS FUNCTIONALITY WITHOUT PRIOR PERMISSION
+
             else:
                 # Polymarket Logic
                 logger.info(
@@ -497,6 +528,65 @@ class MarketDetail(Vertical):
                         "Polymarket WebSocket subscription failed", error=str(e)
                     )
                     # Non-critical, continue
+
+                # ===== CHART DATA FETCHING (POLYMARKET) =====
+                self.app.notify("📊 Fetching chart data...", severity="information")
+
+                multi_series = MultiLineSeries(title=market.question)
+
+                # Get current prices from metadata
+                outcome_prices = extra.get("outcomePrices", [])
+                if isinstance(outcome_prices, str):
+                    try:
+                        outcome_prices = json.loads(outcome_prices)
+                    except:
+                        outcome_prices = []
+
+                if outcome_prices and len(outcome_prices) >= 2:
+                    # Use current prices from metadata (these are live prices)
+                    current_price = float(outcome_prices[0])
+                    
+                    # Try to get last trade price for additional context
+                    try:
+                        token_ids = json.loads(extra.get("clobTokenIds", "[]"))
+                        if token_ids:
+                            last_trade = self.app.poly.client.get_last_trade_price(token_ids[0])
+                            if last_trade and 'price' in last_trade:
+                                current_price = float(last_trade['price'])
+                    except Exception as e:
+                        logger.warning("Could not fetch last trade price", error=str(e))
+
+                    # Create a price history using current price
+                    # Note: Polymarket does NOT provide a public historical trade data API
+                    # We're using the current price as a single data point
+                    import time
+                    series = PriceSeries(
+                        name="Yes",
+                        color="#2ecc71",
+                        points=[
+                            PricePoint(t=time.time() - 3600, p=current_price),
+                            PricePoint(t=time.time(), p=current_price),
+                        ],
+                        max_size=1000,
+                    )
+                    multi_series.add_trace(series)
+                    self.app.notify(
+                        f"✓ Current price loaded: ${current_price:.3f}",
+                        severity="information",
+                    )
+
+                    metadata = {
+                        "volume_24h": market.metadata.get("volume24hr", 0),
+                        "liquidity": market.metadata.get("liquidityNum", 0),
+                        "end_date": market.metadata.get("endDateIso")
+                        or market.metadata.get("endDate"),
+                        "description": market.question,
+                        "is_watched": market.id in self.app.watchlist,
+                        "token_id": market.id,
+                    }
+                    ChartManager().plot(multi_series, metadata=metadata)
+                else:
+                    self.app.notify("⚠ No chart data available", severity="warning")
 
             # Update title to show success
             self.query_one("#detail_title", Label).update(f"📊 {market.question}")
