@@ -27,8 +27,16 @@ This plan follows a TDD approach to rebuild the agent system, explicitly porting
 - [x] Task: Refactor `SupervisorAgent` to become the specialized Orchestrator that manages this new Trio 7f65eeb
 - [x] Task: Conductor - User Manual Verification 'Phase 4: Specialist Agents' (Protocol in workflow.md) 2a0f002
 
-## Phase 5: TUI Integration & Autonomous Modes
-- [ ] Task: Update `AgentChatInterface` to render "Trade Proposal" events as UI cards
-- [ ] Task: Implement the background autonomous loop in `DashboardApp` that ticks the `TraderAgent`
-- [ ] Task: Add UI controls for switching between Manual, Auto-Approval, and Full-Auto modes
-- [ ] Task: Conductor - User Manual Verification 'Phase 5: TUI Integration' (Protocol in workflow.md)
+## Phase 5: TUI Integration & Autonomous Modes [checkpoint: 1c400d5]
+
+- [x] Task: Update `AgentChatInterface` to render "Trade Proposal" events as UI cards e4d2913
+
+- [x] Task: Implement the background autonomous loop in `DashboardApp` that ticks the `TraderAgent` e4d2913
+
+- [x] Task: Add UI controls for switching between Manual, Auto-Approval, and Full-Auto modes e4d2913
+
+- [x] Task: Conductor - User Manual Verification 'Phase 5: TUI Integration' (Protocol in workflow.md) 1c400d5
+
+
+
+
