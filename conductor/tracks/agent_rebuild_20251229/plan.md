@@ -10,8 +10,8 @@ This plan follows a TDD approach to rebuild the agent system, explicitly porting
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Provider Abstraction' (Protocol in workflow.md) 87c47bd
 
 ## Phase 2: External Data Stack (Porting Reference Connectors)
-- [ ] Task: Port `agents/connectors/chroma.py` from reference to `src/polycli/agents/tools/chroma.py` (ChromaDB Integration)
-- [ ] Task: Port `agents/connectors/news.py` from reference to `src/polycli/agents/tools/news.py` (NewsAPI Integration)
+- [x] Task: Port `agents/connectors/chroma.py` from reference to `src/polycli/agents/tools/chroma.py` (ChromaDB Integration) 7776fcd
+- [~] Task: Port `agents/connectors/news.py` from reference to `src/polycli/agents/tools/news.py` (NewsAPI Integration)
 - [ ] Task: Port `agents/connectors/search.py` from reference to `src/polycli/agents/tools/search.py` (Tavily Integration)
 - [ ] Task: Conductor - User Manual Verification 'Phase 2: External Data Stack' (Protocol in workflow.md)
 
