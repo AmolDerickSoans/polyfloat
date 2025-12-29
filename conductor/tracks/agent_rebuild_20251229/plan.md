@@ -4,8 +4,8 @@ This plan follows a TDD approach to rebuild the agent system, explicitly porting
 
 ## Phase 1: Provider Abstraction & Base Refactoring
 - [x] Task: Define `BaseProvider` abstract interface in `src/polycli/providers/base.py` (Methods: `get_markets`, `get_news`, `place_order`) 376c205
-- [ ] Task: Refactor `PolyProvider` to implement `BaseProvider`
-- [ ] Task: Refactor `KalshiProvider` to implement `BaseProvider`
+- [x] Task: Refactor `PolyProvider` to implement `BaseProvider` 9200013
+- [~] Task: Refactor `KalshiProvider` to implement `BaseProvider`
 - [ ] Task: Update `BaseAgent` in `src/polycli/agents/base.py` to use `BaseProvider` instead of direct provider calls
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Provider Abstraction' (Protocol in workflow.md)
 
