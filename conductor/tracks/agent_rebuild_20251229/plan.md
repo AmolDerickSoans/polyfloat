@@ -15,11 +15,11 @@ This plan follows a TDD approach to rebuild the agent system, explicitly porting
 - [x] Task: Port `agents/connectors/search.py` from reference to `src/polycli/agents/tools/search.py` (Tavily Integration) c6f62a5
 - [x] Task: Conductor - User Manual Verification 'Phase 2: External Data Stack' (Protocol in workflow.md) a19d14e
 
-## Phase 3: The Executor Agent (Porting Logic & RAG)
-- [ ] Task: Implement `ExecutorAgent` in `src/polycli/agents/executor.py`, porting logic from reference `agents/application/executor.py` (Chunking, RAG orchestration)
-- [ ] Task: Port Prompts from reference `agents/application/prompts.py` to `src/polycli/agents/prompts.py`
-- [ ] Task: Integrate `ExecutorAgent` with `ChromaConnector` and `SearchConnector`
-- [ ] Task: Conductor - User Manual Verification 'Phase 3: Executor Agent' (Protocol in workflow.md)
+## Phase 3: The Executor Agent (Porting Logic & RAG) [checkpoint: 78fe875]
+- [x] Task: Implement `ExecutorAgent` in `src/polycli/agents/executor.py`, porting logic from reference `agents/application/executor.py` (Chunking, RAG orchestration) 5076369
+- [x] Task: Port Prompts from reference `agents/application/prompts.py` to `src/polycli/agents/prompts.py` 5076369
+- [x] Task: Integrate `ExecutorAgent` with `ChromaConnector` and `SearchConnector` 5076369
+- [x] Task: Conductor - User Manual Verification 'Phase 3: Executor Agent' (Protocol in workflow.md) 78fe875
 
 ## Phase 4: Specialist Agents (Porting Trader & Creator)
 - [ ] Task: Implement `TraderAgent` in `src/polycli/agents/trader.py`, porting `one_best_trade` logic from reference `agents/application/trade.py`
