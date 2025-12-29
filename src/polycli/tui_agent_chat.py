@@ -54,14 +54,36 @@ class AgentChatInterface(Static):
         try:
             pubsub = await self.redis.subscribe("command:results")
             
-            async for msg in pubsub.listen():
+            async_for_msg = pubsub.listen()
+            async for msg in async_for_msg:
                 if msg and msg["type"] == "message":
                     data = json.loads(msg["data"])
                     if self.showing_history:
-                        return
-                    self._add_conversation_message("agent", data.get("result", "Command processed"))
+                        continue
+                    
+                    result = data.get("result")
+                    
+                    # Check if it's a structured trade proposal
+                    if isinstance(result, dict) and result.get("strategy") == "one_best_trade":
+                        self._add_trade_proposal(result)
+                    else:
+                        self._add_conversation_message("agent", str(result or "Command processed"))
         except Exception as e:
             pass
+
+    def _add_trade_proposal(self, proposal: dict) -> None:
+        """Render a trade proposal card"""
+        market = proposal.get("question", "Unknown Market")
+        plan = proposal.get("trade_plan", "No details")
+        
+        card = (
+            "\n[bold yellow]┌─── STRATEGY: ONE BEST TRADE ───┐[/bold yellow]\n"
+            f" [bold]Market:[/bold] {market}\n"
+            f" [bold]Proposal:[/bold] {plan}\n"
+            "[bold yellow]└───────────────────────────────┘[/bold yellow]\n"
+            "[bold cyan][Press A to Approve or C to Cancel][/bold cyan]\n"
+        )
+        self._add_conversation_message("system", card)
 
     def _show_prompt(self) -> None:
         """Show conversation or prompt based on mode"""

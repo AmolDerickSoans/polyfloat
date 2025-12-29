@@ -716,6 +716,7 @@ class DashboardApp(App):
     markets_cache: Dict[str, Market] = {}
     watchlist: Set[str] = set()
     selected_provider: reactive[str] = reactive("polymarket")
+    agent_mode: reactive[str] = reactive("manual") # manual, auto-approval, full-auto
 
     CSS_PATH = "tui.css"
     BINDINGS = [
@@ -728,6 +729,7 @@ class DashboardApp(App):
         ("a", "show_arb", "Arbitrage"),
         ("d", "show_dash", "Dashboard"),
         ("p", "show_portfolio", "Portfolio"),
+        ("m", "cycle_agent_mode", "Agent Mode"),
         ("escape", "escape", "Back/Cancel"),
         ("enter", "enter", "Send Command"),
     ]
@@ -736,15 +738,56 @@ class DashboardApp(App):
         super().__init__(**kwargs)
         self.redis_store = RedisStore(prefix="polycli:")
         self.sqlite_store = SQLiteStore(":memory:")
-        self.supervisor = SupervisorAgent(
-            redis_store=self.redis_store, sqlite_store=self.sqlite_store
-        )
         self.poly = PolyProvider()
         self.kalshi = KalshiProvider()
+        
+        # Determine initial provider for supervisor
+        initial_prov = self.poly # Default
+        
+        self.supervisor = SupervisorAgent(
+            redis_store=self.redis_store, 
+            sqlite_store=self.sqlite_store,
+            provider=initial_prov
+        )
         self.ws_client = PolymarketWebSocket()
         self.kalshi_ws = KalshiWebSocket()
+        self.auto_loop_task = None
 
-    def compose(self) -> ComposeResult:
+    def action_cycle_agent_mode(self) -> None:
+        modes = ["manual", "auto-approval", "full-auto"]
+        idx = modes.index(self.agent_mode)
+        self.agent_mode = modes[(idx + 1) % len(modes)]
+        self.notify(f"Agent Mode: {self.agent_mode.upper()}")
+
+    def on_mount(self) -> None:
+        self.ws_client.start()
+        self.call_later(self.kalshi_ws.connect)
+        
+        # Start background agent loop
+        self.auto_loop_task = asyncio.create_task(self._agent_background_loop())
+
+        mlist = self.query_one("#market_list", DataTable)
+        mlist.add_columns("Market", "Px", "Src")
+        mlist.cursor_type = "row"
+        self.update_markets()
+
+    async def _agent_background_loop(self):
+        """Background loop to tick agents when in autonomous modes"""
+        while True:
+            try:
+                if self.agent_mode in ["auto-approval", "full-auto"]:
+                    import structlog
+                    logger = structlog.get_logger()
+                    logger.info("Background Loop: Ticking TraderAgent")
+                    
+                    # Run the ONE_BEST_TRADE strategy
+                    # Using route_command so it publishes to TUI
+                    await self.supervisor.route_command("AUTO_TICK", {"input": "Find the best trade"})
+                
+                # Sleep for 5 minutes between ticks
+                await asyncio.sleep(300)
+            except Exception as e:
+                await asyncio.sleep(60)
         yield Header()
         with Horizontal():
             # Left column (30%) - Controls & Agents
@@ -848,10 +891,19 @@ class DashboardApp(App):
     def on_provider_change(self, event: RadioSet.Changed):
         if event.pressed.id == "p_poly":
             self.selected_provider = "polymarket"
+            self.supervisor.provider = self.poly
+            self.supervisor.executor.provider = self.poly
+            self.supervisor.trader.provider = self.poly
+            self.supervisor.creator.provider = self.poly
         elif event.pressed.id == "p_kalshi":
             self.selected_provider = "kalshi"
+            self.supervisor.provider = self.kalshi
+            self.supervisor.executor.provider = self.kalshi
+            self.supervisor.trader.provider = self.kalshi
+            self.supervisor.creator.provider = self.kalshi
         elif event.pressed.id == "p_both":
             self.selected_provider = "all"
+            # Keep previous provider for agents as 'all' isn't supported yet
         self.update_markets()
 
     def action_show_portfolio(self) -> None:
