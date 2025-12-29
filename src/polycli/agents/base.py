@@ -20,7 +20,7 @@ class BaseAgent(ABC):
     def __init__(
         self,
         agent_id: str,
-        model: str = "gemini-pro",
+        model: str = "gemini-2.0-flash",
         redis_store: Optional[RedisStore] = None,
         sqlite_store: Optional[SQLiteStore] = None,
         provider: Optional[BaseProvider] = None,

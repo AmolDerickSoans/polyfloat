@@ -4,7 +4,7 @@ from polycli.agents.executor import ExecutorAgent
 
 @pytest.fixture
 def executor():
-    with patch("polycli.agents.tools.chroma.OpenAIEmbeddings"), \
+    with patch("polycli.agents.tools.chroma.GoogleGenerativeAIEmbeddings"), \
          patch("polycli.agents.executor.ExecutorAgent._init_llm"):
         agent = ExecutorAgent()
         agent.llm = MagicMock()

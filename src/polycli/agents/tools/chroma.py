@@ -3,7 +3,7 @@ import os
 import time
 from typing import List, Tuple, Optional, Any, Dict
 
-from langchain_openai import OpenAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.document_loaders import JSONLoader
 from langchain_community.vectorstores import Chroma
 
@@ -13,8 +13,8 @@ from langchain_community.vectorstores import Chroma
 class ChromaConnector:
     def __init__(self, local_db_directory: str = "./local_db", embedding_function: Optional[Any] = None) -> None:
         self.local_db_directory = local_db_directory
-        # Use OpenAI embeddings as per reference
-        self.embedding_function = embedding_function or OpenAIEmbeddings(model="text-embedding-3-small")
+        # Use Google Gemini embeddings instead of OpenAI
+        self.embedding_function = embedding_function or GoogleGenerativeAIEmbeddings(model="models/embedding-001")
 
     def load_json_from_local(
         self, json_file_path: str, vector_db_directory: str = "./local_db"

@@ -32,6 +32,7 @@ The official agent code relies on specific Polymarket API clients. We must abstr
 ### 3. External Data & RAG Stack (Reference Implementation)
 We will implement the exact data stack used in the reference:
 - **Vector Database:** Port `agents/connectors/chroma.py` to `src/polycli/agents/tools/chroma.py`.
+    - **Constraint:** Use `GoogleGenerativeAIEmbeddings` (Gemini) instead of OpenAI.
 - **News Intelligence:** Port `agents/connectors/news.py` to `src/polycli/agents/tools/news.py` (NewsAPI).
 - **Web Search:** Port `agents/connectors/search.py` to `src/polycli/agents/tools/search.py` (Tavily).
 

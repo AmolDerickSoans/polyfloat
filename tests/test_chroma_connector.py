@@ -3,14 +3,14 @@ from unittest.mock import MagicMock, patch
 from polycli.agents.tools.chroma import ChromaConnector
 
 def test_chroma_connector_init():
-    with patch("polycli.agents.tools.chroma.OpenAIEmbeddings") as mock_embeddings:
+    with patch("polycli.agents.tools.chroma.GoogleGenerativeAIEmbeddings") as mock_embeddings:
         connector = ChromaConnector()
         assert connector.local_db_directory == "./local_db"
-        mock_embeddings.assert_called_once_with(model="text-embedding-3-small")
+        mock_embeddings.assert_called_once_with(model="models/embedding-001")
 
 @pytest.mark.asyncio
 async def test_chroma_connector_events_path_creation():
-    with patch("polycli.agents.tools.chroma.OpenAIEmbeddings"), \
+    with patch("polycli.agents.tools.chroma.GoogleGenerativeAIEmbeddings"), \
          patch("os.path.isdir", return_value=False), \
          patch("os.makedirs") as mock_makedirs, \
          patch("builtins.open", MagicMock()), \
