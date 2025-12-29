@@ -1,0 +1,34 @@
+# Implementation Plan: Agent Architecture Rebuild
+
+This plan follows a TDD approach to rebuild the agent system, explicitly porting logic from the official Polymarket reference code (`docs/polymarketagent/`) while adapting it for the TUI and multi-provider support.
+
+## Phase 1: Provider Abstraction & Base Refactoring
+- [x] Task: Define `BaseProvider` abstract interface in `src/polycli/providers/base.py` (Methods: `get_markets`, `get_news`, `place_order`) 376c205
+- [ ] Task: Refactor `PolyProvider` to implement `BaseProvider`
+- [ ] Task: Refactor `KalshiProvider` to implement `BaseProvider`
+- [ ] Task: Update `BaseAgent` in `src/polycli/agents/base.py` to use `BaseProvider` instead of direct provider calls
+- [ ] Task: Conductor - User Manual Verification 'Phase 1: Provider Abstraction' (Protocol in workflow.md)
+
+## Phase 2: External Data Stack (Porting Reference Connectors)
+- [ ] Task: Port `agents/connectors/chroma.py` from reference to `src/polycli/agents/tools/chroma.py` (ChromaDB Integration)
+- [ ] Task: Port `agents/connectors/news.py` from reference to `src/polycli/agents/tools/news.py` (NewsAPI Integration)
+- [ ] Task: Port `agents/connectors/search.py` from reference to `src/polycli/agents/tools/search.py` (Tavily Integration)
+- [ ] Task: Conductor - User Manual Verification 'Phase 2: External Data Stack' (Protocol in workflow.md)
+
+## Phase 3: The Executor Agent (Porting Logic & RAG)
+- [ ] Task: Implement `ExecutorAgent` in `src/polycli/agents/executor.py`, porting logic from reference `agents/application/executor.py` (Chunking, RAG orchestration)
+- [ ] Task: Port Prompts from reference `agents/application/prompts.py` to `src/polycli/agents/prompts.py`
+- [ ] Task: Integrate `ExecutorAgent` with `ChromaConnector` and `SearchConnector`
+- [ ] Task: Conductor - User Manual Verification 'Phase 3: Executor Agent' (Protocol in workflow.md)
+
+## Phase 4: Specialist Agents (Porting Trader & Creator)
+- [ ] Task: Implement `TraderAgent` in `src/polycli/agents/trader.py`, porting `one_best_trade` logic from reference `agents/application/trade.py`
+- [ ] Task: Implement `CreatorAgent` in `src/polycli/agents/creator.py`, porting logic from reference `agents/application/creator.py` (with Kalshi disable check)
+- [ ] Task: Refactor `SupervisorAgent` to become the specialized Orchestrator that manages this new Trio
+- [ ] Task: Conductor - User Manual Verification 'Phase 4: Specialist Agents' (Protocol in workflow.md)
+
+## Phase 5: TUI Integration & Autonomous Modes
+- [ ] Task: Update `AgentChatInterface` to render "Trade Proposal" events as UI cards
+- [ ] Task: Implement the background autonomous loop in `DashboardApp` that ticks the `TraderAgent`
+- [ ] Task: Add UI controls for switching between Manual, Auto-Approval, and Full-Auto modes
+- [ ] Task: Conductor - User Manual Verification 'Phase 5: TUI Integration' (Protocol in workflow.md)

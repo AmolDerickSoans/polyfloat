@@ -9,7 +9,13 @@ dist/
 build/
 *.egg-info/
 
+# Sensitive credentials and keys
+.env
+*.pem
+private.pem
+private_backup.pem
+
+# Application data
 trading_state.db
 .polycli/
-conductor/
 docs/
