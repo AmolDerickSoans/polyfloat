@@ -64,3 +64,8 @@ async def test_kalshi_place_order(provider):
         )
         assert order.id == "o1"
         assert order.status == OrderStatus.OPEN
+
+@pytest.mark.asyncio
+async def test_kalshi_get_news(provider):
+    news = await provider.get_news(query="test")
+    assert news == []
