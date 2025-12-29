@@ -12,8 +12,8 @@ This plan follows a TDD approach to rebuild the agent system, explicitly porting
 ## Phase 2: External Data Stack (Porting Reference Connectors)
 - [x] Task: Port `agents/connectors/chroma.py` from reference to `src/polycli/agents/tools/chroma.py` (ChromaDB Integration) 7776fcd
 - [x] Task: Port `agents/connectors/news.py` from reference to `src/polycli/agents/tools/news.py` (NewsAPI Integration) 644b7b8
-- [~] Task: Port `agents/connectors/search.py` from reference to `src/polycli/agents/tools/search.py` (Tavily Integration)
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: External Data Stack' (Protocol in workflow.md)
+- [x] Task: Port `agents/connectors/search.py` from reference to `src/polycli/agents/tools/search.py` (Tavily Integration) c6f62a5
+- [~] Task: Conductor - User Manual Verification 'Phase 2: External Data Stack' (Protocol in workflow.md)
 
 ## Phase 3: The Executor Agent (Porting Logic & RAG)
 - [ ] Task: Implement `ExecutorAgent` in `src/polycli/agents/executor.py`, porting logic from reference `agents/application/executor.py` (Chunking, RAG orchestration)
