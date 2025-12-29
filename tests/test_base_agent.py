@@ -50,7 +50,33 @@ class TestBaseAgent:
         assert base_agent.redis is not None
         assert base_agent.sqlite is not None
         assert base_agent.tool_registry is not None
-    
+        assert base_agent.provider is None
+
+    def test_agent_initialization_with_provider(self, agent_stores):
+        """Test agent initialization with a provider"""
+        from polycli.providers.base import BaseProvider
+        class MockProvider(BaseProvider):
+            async def get_events(self, **kwargs): return []
+            async def get_markets(self, **kwargs): return []
+            async def search(self, **kwargs): return []
+            async def get_orderbook(self, **kwargs): return None
+            async def place_order(self, **kwargs): return None
+            async def cancel_order(self, **kwargs): return False
+            async def get_positions(self, **kwargs): return []
+            async def get_orders(self, **kwargs): return []
+            async def get_history(self, **kwargs): return []
+            async def get_news(self, **kwargs): return []
+        
+        redis, sqlite = agent_stores
+        provider = MockProvider()
+        agent = MockAgent(
+            agent_id="provider_agent",
+            redis_store=redis,
+            sqlite_store=sqlite,
+            provider=provider
+        )
+        assert agent.provider == provider
+
     @pytest.mark.asyncio
     async def test_process_state(self, base_agent):
         """Test processing state"""

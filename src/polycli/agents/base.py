@@ -9,6 +9,7 @@ from .state import AgentExecutionState, Task, AgentMetadata
 from .tools.registry import ToolRegistry
 from polycli.storage.redis_store import RedisStore
 from polycli.storage.sqlite_store import SQLiteStore
+from polycli.providers.base import BaseProvider
 
 logger = structlog.get_logger()
 
@@ -22,6 +23,7 @@ class BaseAgent(ABC):
         model: str = "gemini-pro",
         redis_store: Optional[RedisStore] = None,
         sqlite_store: Optional[SQLiteStore] = None,
+        provider: Optional[BaseProvider] = None,
         config: Optional[Dict[str, Any]] = None
     ):
         self.agent_id = agent_id
@@ -29,6 +31,7 @@ class BaseAgent(ABC):
         self.config = config or {}
         self.redis = redis_store
         self.sqlite = sqlite_store
+        self.provider = provider
         self.tool_registry = ToolRegistry()
         
         # Initialize LLM
