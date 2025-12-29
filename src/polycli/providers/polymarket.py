@@ -354,28 +354,52 @@ class PolyProvider(BaseProvider):
             return []
 
     async def get_history(self, market_id: Optional[str] = None) -> List[Trade]:
-        """Fetch trade history from CLOB API"""
-        async with httpx.AsyncClient() as client:
-            try:
-                # This endpoint might vary depending on CLOB version
-                params = {}
-                if market_id:
-                    params["token_id"] = market_id
-                response = await client.get(f"{self.clob_host}/trades", params=params)
-                response.raise_for_status()
-                data = response.json()
+        """
+        Fetch price history for charting.
+        
+        NOTE: Polymarket CLOB API does NOT provide a public endpoint for 
+        historical trade data. The /trades endpoint requires authentication
+        and only returns user's own trades, not public market history.
+        
+        This implementation uses the available public endpoints to build
+        a price history for charting purposes.
+        """
+        if not market_id:
+            return []
+        
+        try:
+            # Try to get last trade price (public endpoint that works)
+            last_trade = self.client.get_last_trade_price(market_id)
+            
+            if last_trade and 'price' in last_trade:
+                price = float(last_trade['price'])
+                side = Side.BUY if last_trade.get('side') == 'buy' else Side.SELL
                 
-                trades = []
-                for t in data:
-                    trades.append(Trade(
-                        id=t.get("id", "unknown"),
-                        market_id=t.get("asset_id") or market_id,
-                        price=float(t.get("price")),
-                        size=float(t.get("size")),
-                        side=Side.BUY if t.get("side") == "buy" else Side.SELL,
-                        timestamp=float(t.get("timestamp", 0))
-                    ))
-                return trades
-            except Exception as e:
-                logger.error("Error fetching trade history", market_id=market_id, error=str(e))
-                return []
+                # Create a single trade entry with current timestamp
+                import time
+                return [Trade(
+                    id="last_trade",
+                    market_id=market_id,
+                    price=price,
+                    size=100.0,  # Default size for charting
+                    side=side,
+                    timestamp=time.time()
+                )]
+            return []
+            
+        except Exception as e:
+            logger.error("Error fetching last trade price for charting", market_id=market_id, error=str(e))
+            return []
+
+    async def get_news(
+        self,
+        query: Optional[str] = None,
+        limit: int = 10
+    ) -> List[Any]:
+        """
+        Fetch market-related news.
+        Currently a placeholder to satisfy BaseProvider interface.
+        Full implementation will be added in Phase 2.
+        """
+        logger.info("Fetching news (placeholder)", query=query, limit=limit)
+        return []

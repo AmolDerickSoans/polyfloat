@@ -64,3 +64,8 @@ async def test_poly_get_orders(provider):
         orders = await provider.get_orders()
         assert len(orders) == 1
         assert orders[0].id == "o1"
+
+@pytest.mark.asyncio
+async def test_poly_get_news(provider):
+    news = await provider.get_news(query="test")
+    assert news == []
