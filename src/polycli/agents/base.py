@@ -2,6 +2,9 @@ import uuid
 from typing import Dict, Any, Optional, List
 from abc import ABC, abstractmethod
 import structlog
+import asyncio
+import json
+import time
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
@@ -91,6 +94,8 @@ class BaseAgent(ABC):
             task["outputs"] = result
             task["latency_ms"] = (end_time - start_time) * 1000
             
+            await self.publish_status(f"Task {task['task_id']} completed", status="IDLE")
+            
             # Store task result
             if self.redis:
                 await self.redis.set(
@@ -127,7 +132,29 @@ class BaseAgent(ABC):
                 error=str(e)
             )
             
+            await self.publish_status(f"Error: {str(e)}", status="ERROR")
+            
             return {"error": str(e), "success": False}
+    
+    async def publish_status(self, message: str, status: str = "RUNNING"):
+        """Publish status message to Redis for TUI visibility"""
+        if self.redis:
+            payload = {
+                "agent_id": self.agent_id,
+                "status": status,
+                "message": message,
+                "timestamp": time.time()
+            }
+            await self.redis.publish("agent:status:updates", payload)
+            
+            # Also update health for the panel
+            health_payload = {
+                "agent_id": self.agent_id,
+                "status": status,
+                "current_task": message[:20],  # Keep it short for the table
+                "timestamp": time.time()
+            }
+            await self.redis.publish("agent:health", health_payload)
     
     @abstractmethod
     async def _process_task_logic(self, task: Task) -> Dict[str, Any]:

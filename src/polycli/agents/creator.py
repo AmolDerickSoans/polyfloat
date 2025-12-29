@@ -69,18 +69,19 @@ class CreatorAgent(BaseAgent):
 
         try:
             # 1. Fetch Events
-            logger.info("Creator: finding events")
+            await self.publish_status("Fetching events...")
             events = await self.provider.get_events()
             if not events:
                 return {"error": "No events found", "success": False}
 
             # 2. Filter Events with RAG
-            logger.info("Creator: filtering events with RAG")
+            await self.publish_status(f"RAG filtering {len(events)} events...")
             filtered_events = await self.executor.filter_events_with_rag(events)
             if not filtered_events:
                 return {"error": "No events passed RAG filtering", "success": False}
 
             # 3. Map events to markets
+            await self.publish_status(f"Mapping {len(filtered_events)} events to markets...")
             markets = []
             for e_doc in filtered_events:
                 e_meta = e_doc[0].metadata
@@ -92,13 +93,13 @@ class CreatorAgent(BaseAgent):
                 return {"error": "No markets found for filtered events", "success": False}
 
             # 4. Filter Markets with RAG
-            logger.info("Creator: filtering markets with RAG")
+            await self.publish_status(f"RAG filtering {len(markets)} markets...")
             filtered_markets = await self.executor.filter_markets(markets)
             if not filtered_markets:
                 return {"error": "No markets passed RAG filtering", "success": False}
 
             # 5. Source Best Market Idea
-            logger.info("Creator: sourcing new market idea")
+            await self.publish_status("Sourcing new market ideas...")
             best_market_idea = await self.executor.source_best_market_to_create(filtered_markets)
             logger.info(f"Creator: sourced idea: {best_market_idea}")
 

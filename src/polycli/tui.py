@@ -51,30 +51,77 @@ from polycli.storage.sqlite_store import SQLiteStore
 from polycli.tui_agent_panel import AgentStatusPanel
 from polycli.tui_agent_chat import AgentChatInterface
 from polycli.agents import SupervisorAgent
+from polycli.news.websocket_client import NewsWebSocketClient
+from polycli.news.api_client import NewsAPIClient
+from polycli.news.news_widget import NewsPanel
+from polycli.tui_news_feed import FullScreenNewsFeed
+import structlog
+
+logger = structlog.get_logger()
 
 
 class NewsTicker(Static):
-    """Scrolling news ticker at the bottom of the screen"""
+    """Scrolling news ticker with real-time updates from polyfloat-news API"""
 
-    news_items = [
-        "US Election 2024: Trump leads in Pennsylvania by 2%",
-        "FED: Powell hints at potential rate pause in January",
-        "CRYPTO: BTC breaches $100k for the first time in history",
-        "POLYX: New arbitrage opportunity detected in 'NBA Winner' markets",
-        "MARKETS: Open interest on Polymarket hits record $2.5B",
-    ]
-    current_index = 0
+    MAX_ITEMS = 20  # Keep last 20 news items
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.news_items: List[Dict[str, Any]] = []
+        self.current_index = 0
+        self._fallback_items = [
+            {"content": "Connecting to news service...", "impact_score": 50, "source": "system"},
+        ]
 
     def on_mount(self) -> None:
-        self.update_news()
+        self._start_rotation()
 
     @work
-    async def update_news(self) -> None:
+    async def _start_rotation(self) -> None:
+        """Rotate through news items"""
         while True:
-            item = self.news_items[self.current_index % len(self.news_items)]
-            self.update(f"[bold yellow]NEWS FLASH:[/bold yellow] {item}")
-            self.current_index += 1
+            items = self.news_items if self.news_items else self._fallback_items
+            if items:
+                item = items[self.current_index % len(items)]
+                self._render_item(item)
+                self.current_index += 1
             await asyncio.sleep(5)
+
+    def _render_item(self, item: Dict[str, Any]) -> None:
+        """Render a single news item with impact coloring"""
+        impact = item.get("impact_score", 50)
+        content = item.get("title") or item.get("content", "")[:80]
+        source = item.get("source", "news")
+
+        # Color code by impact
+        if impact >= 80:
+            impact_tag = "[bold red]🔴 BREAKING[/bold red]"
+        elif impact >= 60:
+            impact_tag = "[bold yellow]🟡 HIGH[/bold yellow]"
+        else:
+            impact_tag = "[dim]⚪[/dim]"
+
+        # Source badge
+        source_badge = "[blue]𝕏[/blue]" if source == "nitter" else "[yellow]📰[/yellow]"
+
+        self.update(f"{impact_tag} {source_badge} {content}")
+
+    def add_news(self, news_data: Dict[str, Any]) -> None:
+        """Add a new news item from WebSocket (called by DashboardApp)"""
+        # Insert at beginning (newest first)
+        self.news_items.insert(0, news_data)
+        # Trim to max items
+        if len(self.news_items) > self.MAX_ITEMS:
+            self.news_items = self.news_items[:self.MAX_ITEMS]
+        # Reset index to show new item immediately
+        self.current_index = 0
+        self._render_item(news_data)
+
+    def set_unavailable(self) -> None:
+        """Show unavailable message when news API is down"""
+        self._fallback_items = [
+            {"content": "News service unavailable - running offline", "impact_score": 30, "source": "system"},
+        ]
 
 
 class QuickOrderModal(ModalScreen):
@@ -357,6 +404,13 @@ class MarketDetail(Vertical):
             self.query_one("#detail_title", Label).update(f"FOCUS: {market.question}")
             self.setup_market(market)
 
+            # Update news panel to filter by market entities (Phase 4: Market-News Linking)
+            try:
+                news_panel = self.app.query_one("#news_panel", NewsPanel)
+                news_panel.filter_by_market(market)
+            except Exception:
+                pass  # News panel may not be mounted or available
+
     @work(exclusive=True)
     async def setup_market(self, market: Market) -> None:
         """Fetch static data and handle WS subscription"""
@@ -532,61 +586,99 @@ class MarketDetail(Vertical):
                 # ===== CHART DATA FETCHING (POLYMARKET) =====
                 self.app.notify("📊 Fetching chart data...", severity="information")
 
-                multi_series = MultiLineSeries(title=market.question)
+                # Get token IDs for price history API (reuse ctids parsed earlier)
+                token_ids = ctids if ctids else []
 
-                # Get current prices from metadata
-                outcome_prices = extra.get("outcomePrices", [])
-                if isinstance(outcome_prices, str):
-                    try:
-                        outcome_prices = json.loads(outcome_prices)
-                    except:
-                        outcome_prices = []
+                if token_ids:
+                    # Fetch ALL intervals in parallel for instant switching in UI
+                    intervals = ["1h", "6h", "1d", "1w", "max"]
+                    fidelity_map = {"1h": 1, "6h": 5, "1d": 15, "1w": 60, "max": 60}
 
-                if outcome_prices and len(outcome_prices) >= 2:
-                    # Use current prices from metadata (these are live prices)
-                    current_price = float(outcome_prices[0])
-                    
-                    # Try to get last trade price for additional context
-                    try:
-                        token_ids = json.loads(extra.get("clobTokenIds", "[]"))
-                        if token_ids:
-                            last_trade = self.app.poly.client.get_last_trade_price(token_ids[0])
-                            if last_trade and 'price' in last_trade:
-                                current_price = float(last_trade['price'])
-                    except Exception as e:
-                        logger.warning("Could not fetch last trade price", error=str(e))
+                    # Create tasks for Yes token (all intervals)
+                    yes_tasks = [
+                        self.app.poly.get_prices_history(
+                            token_id=token_ids[0],
+                            interval=iv,
+                            fidelity=fidelity_map[iv]
+                        )
+                        for iv in intervals
+                    ]
 
-                    # Create a price history using current price
-                    # Note: Polymarket does NOT provide a public historical trade data API
-                    # We're using the current price as a single data point
-                    import time
-                    series = PriceSeries(
-                        name="Yes",
-                        color="#2ecc71",
-                        points=[
-                            PricePoint(t=time.time() - 3600, p=current_price),
-                            PricePoint(t=time.time(), p=current_price),
-                        ],
-                        max_size=1000,
-                    )
-                    multi_series.add_trace(series)
-                    self.app.notify(
-                        f"✓ Current price loaded: ${current_price:.3f}",
-                        severity="information",
-                    )
+                    # Create tasks for No token if available
+                    no_tasks = []
+                    if len(token_ids) > 1:
+                        no_tasks = [
+                            self.app.poly.get_prices_history(
+                                token_id=token_ids[1],
+                                interval=iv,
+                                fidelity=fidelity_map[iv]
+                            )
+                            for iv in intervals
+                        ]
 
-                    metadata = {
-                        "volume_24h": market.metadata.get("volume24hr", 0),
-                        "liquidity": market.metadata.get("liquidityNum", 0),
-                        "end_date": market.metadata.get("endDateIso")
-                        or market.metadata.get("endDate"),
-                        "description": market.question,
-                        "is_watched": market.id in self.app.watchlist,
-                        "token_id": market.id,
-                    }
-                    ChartManager().plot(multi_series, metadata=metadata)
+                    # Fetch all in parallel
+                    import asyncio
+                    all_tasks = yes_tasks + no_tasks
+                    results = await asyncio.gather(*all_tasks, return_exceptions=True)
+
+                    yes_results = results[:len(intervals)]
+                    no_results = results[len(intervals):] if no_tasks else []
+
+                    # Build interval data structure
+                    interval_data = {}
+                    total_points = 0
+
+                    for i, iv in enumerate(intervals):
+                        yes_points = yes_results[i] if not isinstance(yes_results[i], Exception) else []
+                        no_points = no_results[i] if no_results and not isinstance(no_results[i], Exception) else []
+
+                        traces = []
+                        if yes_points:
+                            traces.append({
+                                "x": [p.t for p in yes_points],
+                                "y": [p.p for p in yes_points],
+                                "name": "Yes",
+                                "color": "#2ecc71"
+                            })
+                            total_points += len(yes_points)
+                        if no_points:
+                            traces.append({
+                                "x": [p.t for p in no_points],
+                                "y": [p.p for p in no_points],
+                                "name": "No",
+                                "color": "#e74c3c"
+                            })
+
+                        if traces:
+                            interval_data[iv] = {"traces": traces}
+
+                    if interval_data:
+                        self.app.notify(
+                            f"✓ Loaded {total_points} points across {len(interval_data)} intervals",
+                            severity="information",
+                        )
+
+                        metadata = {
+                            "volume_24h": market.metadata.get("volume24hr", 0),
+                            "liquidity": market.metadata.get("liquidityNum", 0),
+                            "end_date": market.metadata.get("endDateIso")
+                            or market.metadata.get("endDate"),
+                            "description": market.question,
+                            "is_watched": market.id in self.app.watchlist,
+                            "token_id": market.id,
+                        }
+
+                        # Use new multi-interval plot method
+                        ChartManager().plot_intervals(
+                            title=market.question,
+                            interval_data=interval_data,
+                            default_interval="1d",
+                            metadata=metadata
+                        )
+                    else:
+                        self.app.notify("⚠ No chart data available", severity="warning")
                 else:
-                    self.app.notify("⚠ No chart data available", severity="warning")
+                    self.app.notify("⚠ No token ID available for chart", severity="warning")
 
             # Update title to show success
             self.query_one("#detail_title", Label).update(f"📊 {market.question}")
@@ -729,6 +821,7 @@ class DashboardApp(App):
         ("a", "show_arb", "Arbitrage"),
         ("d", "show_dash", "Dashboard"),
         ("p", "show_portfolio", "Portfolio"),
+        ("n", "show_news", "News Feed"),
         ("m", "cycle_agent_mode", "Agent Mode"),
         ("escape", "escape", "Back/Cancel"),
         ("enter", "enter", "Send Command"),
@@ -753,23 +846,102 @@ class DashboardApp(App):
         self.kalshi_ws = KalshiWebSocket()
         self.auto_loop_task = None
 
+        # News clients (polyfloat-news integration)
+        self.news_ws_client = NewsWebSocketClient()
+        self.news_api_client = NewsAPIClient()
+        self.news_available = False  # Set to True when connected
+
     def action_cycle_agent_mode(self) -> None:
         modes = ["manual", "auto-approval", "full-auto"]
         idx = modes.index(self.agent_mode)
         self.agent_mode = modes[(idx + 1) % len(modes)]
         self.notify(f"Agent Mode: {self.agent_mode.upper()}")
 
+    def action_show_news(self) -> None:
+        """Show full-screen news feed"""
+        news_feed = FullScreenNewsFeed(news_api_client=self.news_api_client)
+        self.push_screen(news_feed)
+
     def on_mount(self) -> None:
         self.ws_client.start()
         self.call_later(self.kalshi_ws.connect)
-        
+
         # Start background agent loop
         self.auto_loop_task = asyncio.create_task(self._agent_background_loop())
+
+        # Connect to news service (graceful fallback if unavailable)
+        asyncio.create_task(self._connect_news_service())
 
         mlist = self.query_one("#market_list", DataTable)
         mlist.add_columns("Market", "Px", "Src")
         mlist.cursor_type = "row"
         self.update_markets()
+
+    async def _connect_news_service(self) -> None:
+        """Connect to polyfloat-news WebSocket with graceful fallback"""
+        try:
+            # Register callback for incoming news
+            self.news_ws_client.add_callback("news_item", self._on_news_item)
+
+            # Connect with timeout
+            await asyncio.wait_for(
+                self.news_ws_client.connect(user_id="terminal_user"),
+                timeout=5.0
+            )
+            self.news_available = True
+            logger.info("News service connected")
+
+            # Wire up NewsPanel with clients
+            try:
+                news_panel = self.query_one("#news_panel", NewsPanel)
+                news_panel.set_clients(self.news_api_client, self.news_ws_client)
+            except Exception:
+                pass  # Panel may not be mounted yet
+
+            # Load initial news via REST API
+            await self._load_initial_news()
+
+        except asyncio.TimeoutError:
+            logger.warning("News service connection timeout - running without news")
+            self.news_available = False
+            self._mark_news_unavailable()
+        except Exception as e:
+            logger.warning("News service unavailable", error=str(e))
+            self.news_available = False
+            self._mark_news_unavailable()
+
+    async def _load_initial_news(self) -> None:
+        """Load initial news items via REST API"""
+        try:
+            news_items = await self.news_api_client.get_news(limit=10)
+            ticker = self.query_one(NewsTicker)
+            for item in reversed(news_items):  # Add oldest first so newest is on top
+                ticker.add_news(item.model_dump())
+            logger.info("Loaded initial news", count=len(news_items))
+        except Exception as e:
+            logger.warning("Failed to load initial news", error=str(e))
+
+    async def _on_news_item(self, news_data: Dict[str, Any]) -> None:
+        """Handle incoming news from WebSocket"""
+        try:
+            ticker = self.query_one(NewsTicker)
+            ticker.add_news(news_data)
+
+            # Show notification for high-impact news
+            impact = news_data.get("impact_score", 0)
+            if impact >= 80:
+                content = news_data.get("title") or news_data.get("content", "")[:50]
+                self.notify(f"🔴 BREAKING: {content}", severity="warning", timeout=10)
+        except Exception as e:
+            logger.error("Error handling news item", error=str(e))
+
+    def _mark_news_unavailable(self) -> None:
+        """Mark news as unavailable in UI"""
+        try:
+            ticker = self.query_one(NewsTicker)
+            ticker.set_unavailable()
+        except Exception:
+            pass  # Ticker may not be mounted yet
 
     async def _agent_background_loop(self):
         """Background loop to tick agents when in autonomous modes"""
@@ -788,7 +960,10 @@ class DashboardApp(App):
                 await asyncio.sleep(300)
             except Exception as e:
                 await asyncio.sleep(60)
+
+    def compose(self) -> ComposeResult:
         yield Header()
+        yield NewsTicker(id="news_ticker")
         with Horizontal():
             # Left column (30%) - Controls & Agents
             with Vertical(id="left_column", classes="left-panel"):
@@ -821,16 +996,12 @@ class DashboardApp(App):
                 yield Label("Market Focus", classes="section_title")
                 yield MarketDetail(id="market_focus", classes="market-detail")
 
+                # News Panel (30% of right column)
+                yield NewsPanel(id="news_panel", classes="news-panel")
+
         yield Footer()
 
-    def on_mount(self) -> None:
-        self.ws_client.start()
-        self.call_later(self.kalshi_ws.connect)
 
-        mlist = self.query_one("#market_list", DataTable)
-        mlist.add_columns("Market", "Px", "Src")
-        mlist.cursor_type = "row"
-        self.update_markets()
 
     @work(exclusive=True)
     async def update_markets(self) -> None:

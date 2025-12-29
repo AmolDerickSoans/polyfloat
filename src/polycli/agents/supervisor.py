@@ -1,5 +1,6 @@
 import time
 import json
+import asyncio
 import structlog
 from typing import Dict, Any, List, Optional
 
@@ -82,29 +83,49 @@ class SupervisorAgent(BaseAgent):
         """
         logger.info("Supervisor: Routing command", command=command, args=args)
         
-        input_text = args.get("input", "").lower()
+        # 1. Immediate ACK for TUI
+        await self.publish_status(f"Ack: Processing {command}...", status="RUNNING")
         
-        # Logic for determining which agent to use
-        if "trade" in input_text or "bet" in input_text:
-            task = await self.create_task("ONE_BEST_TRADE", "Run one best trade strategy", {})
-            result = await self.trader.execute_task(task)
-            msg = result.get("result", {}).get("trade_plan", "No trade found")
-        elif "create" in input_text or "new market" in input_text:
-            task = await self.create_task("ONE_BEST_MARKET", "Run one best market strategy", {})
-            result = await self.creator.execute_task(task)
-            msg = result.get("result", {}).get("market_proposal", "No market idea found")
-        else:
-            # Fallback to general market LLM via Executor
-            # This implements the reference get_polymarket_llm functionality
-            res = await self.executor.get_market_llm(input_text)
-            msg = res
+        input_text = args.get("input", "").lower()
+        msg = "Processing request..."
+        
+        try:
+            # 2. Timeout protection for long-running specialist tasks
+            async with asyncio.timeout(30):  # 30s total budget, but we'll notify if > 5s
+                
+                # Logic for determining which agent to use
+                if "trade" in input_text or "bet" in input_text:
+                    await self.publish_status("Routing to Trader...", status="RUNNING")
+                    task = await self.create_task("ONE_BEST_TRADE", "Run one best trade strategy", {})
+                    result = await self.trader.execute_task(task)
+                    msg = result.get("result", {}).get("trade_plan", "No trade found")
+                elif "create" in input_text or "new market" in input_text:
+                    await self.publish_status("Routing to Creator...", status="RUNNING")
+                    task = await self.create_task("ONE_BEST_MARKET", "Run one best market strategy", {})
+                    result = await self.creator.execute_task(task)
+                    msg = result.get("result", {}).get("market_proposal", "No market idea found")
+                else:
+                    await self.publish_status("Executor: Analyzing market...", status="RUNNING")
+                    # Fallback to general market LLM via Executor
+                    res = await self.executor.get_market_llm(input_text)
+                    msg = res
+
+        except asyncio.TimeoutError:
+            msg = "⚠️ Task timed out. The agent is taking too long to respond."
+            await self.publish_status(msg, status="ERROR")
+        except Exception as e:
+            msg = f"❌ Error: {str(e)}"
+            await self.publish_status(msg, status="ERROR")
 
         # Publish result for TUI
         if self.redis:
-            await self.redis.publish("command:results", json.dumps({
+            await self.redis.publish("command:results", {
                 "command": command,
                 "result": msg
-            }))
+            })
+        
+        # Final idle status
+        await self.publish_status("Ready", status="IDLE")
         
         return {
             "success": True,

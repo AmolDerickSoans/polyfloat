@@ -1,6 +1,7 @@
 from .models import NewsItem, UserSubscription, SystemStats, CategoryType, SourceType
 from polycli.news.api_client import NewsAPIClient
 from polycli.news.websocket_client import NewsWebSocketClient
+from polycli.news.news_widget import NewsPanel, NewsWidget
 from polycli.news.tools import TOOL_FUNCTIONS, TOOL_METADATA, init_news_clients
 
 __all__ = [
@@ -11,6 +12,8 @@ __all__ = [
     "SourceType",
     "NewsAPIClient",
     "NewsWebSocketClient",
+    "NewsPanel",
+    "NewsWidget",
     "TOOL_FUNCTIONS",
     "TOOL_METADATA",
     "init_news_clients",

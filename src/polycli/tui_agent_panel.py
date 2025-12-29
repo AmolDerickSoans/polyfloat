@@ -16,12 +16,35 @@ class AgentStatusPanel(Static):
         self.redis = redis_store
         self.agent_data = {}
         self.pubsub_task = None
+        self.ticker_task = None
         self.last_status = {}
         self.expanded = True
+        self.pulse_state = False
+        self.ticker_messages = []  # Last 5 status updates
 
     def on_mount(self) -> None:
         """Subscribe to agent health updates on mount"""
         self.pubsub_task = asyncio.create_task(self._subscribe_agent_health())
+        self.ticker_task = asyncio.create_task(self._subscribe_agent_ticker())
+        self.set_interval(0.8, self._toggle_pulse)
+
+    def _toggle_pulse(self) -> None:
+        """Toggle pulse state for running agents"""
+        self.pulse_state = not self.pulse_state
+        self._render_agent_table()
+
+    async def _subscribe_agent_ticker(self):
+        """Subscribe to specific agent status updates for the ticker"""
+        try:
+            pubsub = await self.redis.subscribe("agent:status:updates")
+            async for msg in pubsub.listen():
+                if msg and msg["type"] == "message":
+                    data = json.loads(msg["data"])
+                    self.ticker_messages.insert(0, data)
+                    self.ticker_messages = self.ticker_messages[:5]
+                    self._render_agent_table()
+        except Exception:
+            pass
 
     async def _subscribe_agent_health(self):
         """Subscribe to Redis for real-time agent health updates"""
@@ -83,13 +106,21 @@ class AgentStatusPanel(Static):
         # Build panel content
         content_str = self._table_to_string(table)
         
-        # Add hide/expand button
-        if self.expanded:
-            hide_text = "[-] Hide"
+        # Add Live Ticker
+        ticker_str = "\n[bold cyan]─ LIVE TICKER ─[/bold cyan]\n"
+        if not self.ticker_messages:
+            ticker_str += "[dim]Waiting for updates...[/dim]"
         else:
-            hide_text = "[+] Expand"
+            for msg in self.ticker_messages:
+                ts = datetime.fromtimestamp(msg.get("timestamp", 0)).strftime("%H:%M:%S")
+                agent = self._shorten_id(msg.get("agent_id", "???"))
+                text = msg.get("message", "")[:25]
+                ticker_str += f"[dim]{ts}[/dim] [cyan]{agent}:[/cyan] {text}\n"
+
+        # Add hide/expand button
+        hide_text = "[-] Hide" if self.expanded else "[+] Expand"
         
-        full_content = content_str + "\n" + hide_text
+        full_content = content_str + ticker_str + "\n" + hide_text
         self.update(full_content)
 
     def _table_to_string(self, table) -> str:
@@ -102,8 +133,10 @@ class AgentStatusPanel(Static):
 
     def _get_status_icon(self, status: str) -> str:
         """Get icon for status"""
+        if status == "RUNNING":
+            return "●" if self.pulse_state else "○"
+        
         icons = {
-            "RUNNING": "●",
             "IDLE": "○",
             "ERROR": "✗",
             "STOPPED": "■",
@@ -146,3 +179,5 @@ class AgentStatusPanel(Static):
         """Clean up Redis subscription on unmount"""
         if self.pubsub_task:
             self.pubsub_task.cancel()
+        if self.ticker_task:
+            self.ticker_task.cancel()

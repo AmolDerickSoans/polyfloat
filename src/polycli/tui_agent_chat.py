@@ -2,16 +2,17 @@ import asyncio
 import json
 import os
 from datetime import datetime
-from textual.widgets import Static, TextArea
-from textual.containers import Vertical
+from textual.widgets import Static, Input, Collapsible
+from textual.containers import Vertical, Container, VerticalScroll
 from textual.binding import Binding
+from textual import events
+from rich.table import Table
 
-class AgentChatInterface(Static):
-    """Large multi-line text input for agent interaction"""
+
+class AgentChatInterface(Container):
+    """Single-line text input for agent interaction"""
     
-    BINDINGS = [
-        Binding("ctrl+enter", "submit_chat", "Send Message"),
-    ]
+    can_focus = True
 
     def __init__(self, redis_store, supervisor, **kwargs):
         super().__init__(**kwargs)
@@ -27,12 +28,13 @@ class AgentChatInterface(Static):
     def compose(self):
         """Compose chat interface"""
         with Vertical(id="chat_container"):
-            yield Static(id="conversation_display", classes="conversation-box")
+            with VerticalScroll(id="conversation_scroll"):
+                yield Static("[dim italic]> Type natural language commands... (Enter to send)[/dim italic]", id="initial_prompt")
             
-            yield TextArea(
+            yield Input(
                 id="chat_input",
                 classes="chat-input",
-                show_line_numbers=False
+                placeholder="Message Supervisor..."
             )
 
     def on_mount(self) -> None:
@@ -46,21 +48,21 @@ class AgentChatInterface(Static):
                 "[bold red]⚠️ SETUP REQUIRED:[/bold red] GOOGLE_API_KEY not found.\n"
                 "Please set GOOGLE_API_KEY in your .env file or environment variables to enable agents."
             )
-        else:
-            self._show_prompt()
 
     async def _subscribe_command_results(self):
         """Subscribe to Redis for command execution results"""
         try:
             pubsub = await self.redis.subscribe("command:results")
             
-            async_for_msg = pubsub.listen()
-            async for msg in async_for_msg:
+            async for msg in pubsub.listen():
                 if msg and msg["type"] == "message":
                     data = json.loads(msg["data"])
                     if self.showing_history:
                         continue
                     
+                    # Remove "Thinking..." block if exists
+                    self._remove_thinking_block()
+
                     result = data.get("result")
                     
                     # Check if it's a structured trade proposal
@@ -72,57 +74,59 @@ class AgentChatInterface(Static):
             pass
 
     def _add_trade_proposal(self, proposal: dict) -> None:
-        """Render a trade proposal card"""
+        """Render a trade proposal card using Collapsible and Table"""
+        self._remove_thinking_block()
         market = proposal.get("question", "Unknown Market")
         plan = proposal.get("trade_plan", "No details")
         
-        card = (
-            "\n[bold yellow]┌─── STRATEGY: ONE BEST TRADE ───┐[/bold yellow]\n"
-            f" [bold]Market:[/bold] {market}\n"
-            f" [bold]Proposal:[/bold] {plan}\n"
-            "[bold yellow]└───────────────────────────────┘[/bold yellow]\n"
-            "[bold cyan][Press A to Approve or C to Cancel][/bold cyan]\n"
+        table = Table(show_header=False, box=None, padding=(0, 1))
+        table.add_row("[bold yellow]Market:[/bold yellow]", market)
+        table.add_row("[bold yellow]Proposal:[/bold yellow]", plan)
+        table.add_row("[bold cyan]Action:[/bold cyan]", "Press A to Approve or C to Cancel")
+        
+        collapsible = Collapsible(
+            Static(table),
+            title=f"PROPOSAL: {market[:30]}...",
+            collapsed=False
         )
-        self._add_conversation_message("system", card)
-
-    def _show_prompt(self) -> None:
-        """Show conversation or prompt based on mode"""
-        if not self.conversation_history and not self.showing_history:
-            self.update("[dim italic]> Type natural language commands... (Ctrl+Enter to send)[/dim italic]")
-        else:
-            content = self._format_conversation()
-            self.update(content)
-
-    def _format_conversation(self) -> str:
-        """Format conversation as text"""
-        lines = []
-        if self.showing_history:
-            lines.append("[bold blue]=== AGENT TASK HISTORY ===[/bold blue]")
-        
-        for msg in self.conversation_history[-50:]:
-            timestamp = datetime.fromtimestamp(msg.get("timestamp", 0)).strftime("%H:%M:%S")
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
-            
-            if role == "user":
-                line = "[dim]{}[/dim] [bold cyan]>[/bold cyan] {}".format(timestamp, content)
-            elif role == "system":
-                line = "[dim]{}[/dim] {}".format(timestamp, content)
-            else:
-                line = "[dim]{}[/dim] [bold green]<[/bold green] {}".format(timestamp, content)
-            
-            lines.append(line)
-        
-        return "\n".join(lines)
+        self.query_one("#conversation_scroll").mount(collapsible)
+        collapsible.scroll_visible()
 
     def _add_conversation_message(self, role, content) -> None:
-        """Add message to conversation history"""
-        self.conversation_history.append({
-            "role": role,
-            "content": content,
-            "timestamp": datetime.now().timestamp()
-        })
-        self._show_prompt()
+        """Add message to conversation history and mount widget"""
+        self._remove_thinking_block()
+        scroll = self.query_one("#conversation_scroll")
+        
+        # Remove initial prompt if it's the first message
+        try:
+            self.query_one("#initial_prompt").remove()
+        except Exception:
+            pass
+
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        if role == "user":
+            msg = Static(f"[dim]{timestamp}[/dim] [bold cyan]>[/bold cyan] {content}")
+            scroll.mount(msg)
+        elif role == "agent":
+            collapsible = Collapsible(
+                Static(content),
+                title=f"AGENT ({timestamp})",
+                collapsed=False
+            )
+            scroll.mount(collapsible)
+        else: # system
+            msg = Static(f"[dim]{timestamp}[/dim] [italic yellow]{content}[/italic yellow]")
+            scroll.mount(msg)
+            
+        scroll.scroll_end(animate=False)
+
+    def _remove_thinking_block(self) -> None:
+        """Safely remove the thinking indicator if it exists"""
+        try:
+            self.query_one("#thinking_block").remove()
+        except Exception:
+            pass
 
     def _append_to_display(self, text) -> None:
         """Append text directly to current display"""
@@ -130,21 +134,25 @@ class AgentChatInterface(Static):
         if display:
             current = display.renderable
             if current:
-                self.update(str(current) + "\n" + text)
+                display.update(str(current) + "\n" + text)
         else:
-            self.update(text)
+            display.update(text)
 
     async def on_key(self, event) -> None:
         """Handle keyboard navigation"""
         if event.key == "escape":
             if self.showing_history:
                 self.return_to_chat()
+    
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key submission from Input widget"""
+        self.action_submit_chat()
 
     def action_submit_chat(self) -> None:
         """Send current input to supervisor"""
-        text_area = self.query_one("#chat_input")
-        if text_area:
-            input_text = str(text_area.text).strip()
+        chat_input = self.query_one("#chat_input", Input)
+        if chat_input:
+            input_text = str(chat_input.value).strip()
             if not input_text:
                 return
 
@@ -153,7 +161,14 @@ class AgentChatInterface(Static):
             self.history_index = len(self.input_history)
             
             self._add_conversation_message("user", input_text)
-            text_area.text = ""
+            chat_input.value = ""
+            
+            # Add "Thinking..." block (only if not already there)
+            scroll = self.query_one("#conversation_scroll")
+            if not self.query("#thinking_block"):
+                thinking = Static("[italic dim]Thinking...[/italic dim]", id="thinking_block")
+                scroll.mount(thinking)
+                scroll.scroll_end()
             
             asyncio.create_task(self._route_command(input_text))
 
@@ -165,12 +180,10 @@ class AgentChatInterface(Static):
                 args={"input": input_text, "agent_id": self.current_agent}
             )
             
-            if result:
-                self._add_conversation_message("agent", result.get("result", "Command processed"))
-            else:
-                self._append_to_display("[red]Command error: Supervisor not available[/red]")
+            if not result:
+                self._add_conversation_message("system", "[red]Command error: Supervisor not available[/red]")
         except Exception as e:
-            self._append_to_display(f"[red]Error: {str(e)}[/red]")
+            self._add_conversation_message("system", f"[red]Error: {str(e)}[/red]")
 
     def set_agent_context(self, agent_id) -> None:
         """Set which agent to talk to"""

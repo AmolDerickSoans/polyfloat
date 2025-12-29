@@ -177,13 +177,16 @@ class ExecutorAgent(BaseAgent):
         if not self.provider:
             return "No provider available"
             
+        await self.publish_status("Fetching current market data...")
         events = await self.provider.get_events()
         markets = await self.provider.get_markets()
         
+        await self.publish_status(f"Processing {len(events)} events and {len(markets)} markets...")
         combined_data_str = str(self.prompter.prompts_market(data1=events, data2=markets))
         total_tokens = self.estimate_tokens(combined_data_str)
         
         if total_tokens <= self.token_limit:
+            await self.publish_status("Generating response (single chunk)...")
             prompt = self.prompter.prompts_market(data1=events, data2=markets)
             return await self.call_llm(prompt, system_message=user_input)
         else:
@@ -197,7 +200,8 @@ class ExecutorAgent(BaseAgent):
             cut_2 = self.divide_list(markets, group_size)
             
             results = []
-            for sub_events, sub_markets in zip(cut_1, cut_2):
+            for i, (sub_events, sub_markets) in enumerate(zip(cut_1, cut_2)):
+                await self.publish_status(f"Generating response (chunk {i+1}/{group_size})...")
                 prompt = self.prompter.prompts_market(data1=sub_events, data2=sub_markets)
                 res = await self.call_llm(prompt, system_message=user_input)
                 results.append(res)

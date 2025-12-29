@@ -13,123 +13,378 @@
             --text-secondary: #8b949e;
             --accent: #58a6ff;
             --success: #2ea043;
+            --danger: #f85149;
             --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             --font-mono: 'JetBrains Mono', monospace;
         }
-        body { margin: 0; padding: 0; background-color: var(--bg-color); color: var(--text-primary); font-family: var(--font-main); overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
-        
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-main);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
         /* HEADER */
         .header {
-            height: 60px;
+            height: 56px;
             background-color: var(--panel-bg);
             border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
-            padding: 0 20px;
+            padding: 0 16px;
             justify-content: space-between;
+            gap: 16px;
         }
-        .header-left { display: flex; align-items: center; gap: 15px; }
-        .market-icon { width: 32px; height: 32px; background: var(--border-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; }
-        .market-title { font-weight: 600; font-size: 16px; color: #fff; }
-        .market-meta { display: flex; gap: 20px; font-size: 12px; color: var(--text-secondary); margin-left: 20px; }
-        .meta-item { display: flex; flex-direction: column; }
-        .meta-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .meta-value { font-family: var(--font-mono); color: var(--text-primary); font-weight: 500; }
-        
-        /* ACTIONS */
-        .actions { display: flex; gap: 10px; }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+            min-width: 0;
+        }
+        .market-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #58a6ff 0%, #a371f7 100%);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            flex-shrink: 0;
+        }
+        .market-info {
+            min-width: 0;
+            flex: 1;
+        }
+        .market-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .market-subtitle {
+            font-size: 11px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* STATS */
+        .stats-bar {
+            display: flex;
+            gap: 16px;
+            padding: 0 16px;
+            flex-shrink: 0;
+        }
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+        .stat-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+        }
+        .stat-value {
+            font-family: var(--font-mono);
+            color: var(--text-primary);
+            font-weight: 500;
+            font-size: 13px;
+        }
+
+        /* CONTROLS */
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .select-wrapper {
+            position: relative;
+        }
+        .select-wrapper svg {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            pointer-events: none;
+            color: var(--text-secondary);
+        }
+        select {
+            appearance: none;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 6px 28px 6px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: var(--font-main);
+            cursor: pointer;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        select:hover { border-color: var(--text-secondary); }
+        select:focus { border-color: var(--accent); }
+        select:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* BUTTONS */
         .btn {
             background: transparent;
             border: 1px solid var(--border-color);
             color: var(--text-primary);
-            padding: 6px 12px;
+            padding: 6px 10px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 12px;
             font-weight: 500;
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: 6px;
-            transition: all 0.2s;
+            transition: all 0.15s;
+            height: 32px;
         }
         .btn:hover { background: var(--border-color); border-color: var(--text-secondary); }
-        .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-        .btn.primary:hover { opacity: 0.9; }
-        .star-btn { font-size: 16px; padding: 6px 10px; }
-        .star-btn.active { color: #e3b341; border-color: #e3b341; background: rgba(227, 179, 65, 0.1); }
+        .btn.active { color: #e3b341; border-color: #e3b341; background: rgba(227, 179, 65, 0.1); }
+        .btn svg { width: 16px; height: 16px; }
+
+        /* 3-DOT MENU */
+        .menu-container {
+            position: relative;
+        }
+        .menu-btn {
+            width: 32px;
+            padding: 0;
+        }
+        .dropdown-menu {
+            position: absolute;
+            top: calc(100% + 4px);
+            right: 0;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            min-width: 160px;
+            padding: 4px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-8px);
+            transition: all 0.15s ease;
+        }
+        .dropdown-menu.open {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-primary);
+            transition: background 0.1s;
+        }
+        .menu-item:hover { background: var(--border-color); }
+        .menu-item svg {
+            width: 16px;
+            height: 16px;
+            color: var(--text-secondary);
+            flex-shrink: 0;
+        }
+        .menu-divider {
+            height: 1px;
+            background: var(--border-color);
+            margin: 4px 0;
+        }
 
         /* CHART CONTAINER */
         #chart-container { flex: 1; position: relative; width: 100%; }
         #chart { width: 100%; height: 100%; }
-        
+
+        /* LOADING INDICATOR */
+        .interval-indicator {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            z-index: 10;
+        }
+
     </style>
 </head>
 <body>
     <div class="header">
         <div class="header-left">
             <div class="market-icon">PM</div>
-            <div>
+            <div class="market-info">
                 <div class="market-title" id="m-title">Loading...</div>
-                <div style="font-size: 11px; color: var(--text-secondary);" id="m-desc"></div>
-            </div>
-            <div class="market-meta">
-                <div class="meta-item">
-                    <span class="meta-label">Volume (24h)</span>
-                    <span class="meta-value" id="m-vol">--</span>
-                </div>
-                <div class="meta-item">
-                    <span class="meta-label">Liquidity</span>
-                    <span class="meta-value" id="m-liq">--</span>
-                </div>
-                <div class="meta-item">
-                    <span class="meta-label">End Date</span>
-                    <span class="meta-value" id="m-end">--</span>
-                </div>
+                <div class="market-subtitle" id="m-desc"></div>
             </div>
         </div>
-        <div class="actions">
-            <button class="btn star-btn" id="star-btn" onclick="toggleStar()">☆</button>
-            <button class="btn" onclick="downloadCSV()">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                CSV
+
+        <div class="stats-bar">
+            <div class="stat-item">
+                <span class="stat-label">Vol 24h</span>
+                <span class="stat-value" id="m-vol">--</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Liquidity</span>
+                <span class="stat-value" id="m-liq">--</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Ends</span>
+                <span class="stat-value" id="m-end">--</span>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="select-wrapper">
+                <select id="interval-select" title="Time Range">
+                    <option value="1h">1 Hour</option>
+                    <option value="6h">6 Hours</option>
+                    <option value="1d" selected>1 Day</option>
+                    <option value="1w">1 Week</option>
+                    <option value="max">All Time</option>
+                </select>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            </div>
+
+            <button class="btn" id="star-btn" onclick="toggleStar()" title="Add to Watchlist">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                </svg>
             </button>
-            <button class="btn" onclick="downloadJSON()">JSON</button>
+
+            <div class="menu-container">
+                <button class="btn menu-btn" id="menu-btn" onclick="toggleMenu()" title="More Options">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="5" r="2"></circle>
+                        <circle cx="12" cy="12" r="2"></circle>
+                        <circle cx="12" cy="19" r="2"></circle>
+                    </svg>
+                </button>
+                <div class="dropdown-menu" id="dropdown">
+                    <div class="menu-item" onclick="downloadCSV()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                        </svg>
+                        Export CSV
+                    </div>
+                    <div class="menu-item" onclick="downloadJSON()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="12" y1="18" x2="12" y2="12"></line>
+                            <line x1="9" y1="15" x2="15" y2="15"></line>
+                        </svg>
+                        Export JSON
+                    </div>
+                    <div class="menu-divider"></div>
+                    <div class="menu-item" onclick="copyLink()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                        </svg>
+                        Copy Token ID
+                    </div>
+                    <div class="menu-item" onclick="resetZoom()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="1 4 1 10 7 10"></polyline>
+                            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                        </svg>
+                        Reset Zoom
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
-    
+
     <div id="chart-container">
         <div id="chart"></div>
+        <div class="interval-indicator" id="interval-indicator"></div>
     </div>
 
     <script>
         var injected_data = {{DATA}};
+        var currentInterval = injected_data.default_interval || "1d";
 
         function formatCurrency(val) {
             if (val >= 1000000) return "$" + (val/1000000).toFixed(1) + "M";
             if (val >= 1000) return "$" + (val/1000).toFixed(1) + "K";
-            return "$" + val.toFixed(0);
+            return "$" + (val || 0).toFixed(0);
         }
 
         function formatDate(isoStr) {
             if (!isoStr) return "--";
-            return new Date(isoStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+            return new Date(isoStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        }
+
+        function getIntervalLabel(iv) {
+            var labels = {"1h": "1 Hour", "6h": "6 Hours", "1d": "1 Day", "1w": "1 Week", "max": "All Time"};
+            return labels[iv] || iv;
         }
 
         // Initialize UI
         if (injected_data) {
-            document.getElementById('m-title').innerText = injected_data.title || "Market";
-            
+            var title = injected_data.title || "Market";
+            document.getElementById('m-title').innerText = title.length > 60 ? title.substring(0, 60) + "..." : title;
+
             var meta = injected_data.metadata || {};
-            if (meta.description) document.getElementById('m-desc').innerText = meta.description.substring(0, 60) + (meta.description.length > 60 ? "..." : "");
-            
+            if (meta.description) {
+                var desc = meta.description;
+                document.getElementById('m-desc').innerText = desc.length > 80 ? desc.substring(0, 80) + "..." : desc;
+            }
+
             document.getElementById('m-vol').innerText = formatCurrency(meta.volume_24h || 0);
             document.getElementById('m-liq').innerText = formatCurrency(meta.liquidity || 0);
             document.getElementById('m-end').innerText = formatDate(meta.end_date);
-            
+
+            // Set interval dropdown
+            var intervalSelect = document.getElementById('interval-select');
+            intervalSelect.value = currentInterval;
+
+            // Disable options that don't have data
+            if (injected_data.intervals) {
+                Array.from(intervalSelect.options).forEach(function(opt) {
+                    if (!injected_data.intervals[opt.value]) {
+                        opt.disabled = true;
+                        opt.text += " (N/A)";
+                    }
+                });
+            }
+
             if (meta.is_watched) {
                 var btn = document.getElementById('star-btn');
                 btn.classList.add('active');
-                btn.innerText = "★";
+                btn.querySelector('svg').setAttribute('fill', '#e3b341');
             }
         }
 
@@ -137,41 +392,27 @@
             plot_bgcolor: "#0d1117",
             paper_bgcolor: "#0d1117",
             font: { color: "#8b949e", family: "Inter, sans-serif", size: 11 },
-            margin: { t: 40, r: 40, b: 40, l: 60 },
-            xaxis: { 
-                gridcolor: "#30363d", 
+            margin: { t: 30, r: 40, b: 40, l: 50 },
+            xaxis: {
+                gridcolor: "#21262d",
                 zerolinecolor: "#30363d",
                 linecolor: "#30363d",
                 showspikes: true,
                 spikethickness: 1,
                 spikedash: "dot",
                 spikecolor: "#58a6ff",
-                rangeselector: {
-                    buttons: [
-                        {count: 1, label: '1D', step: 'day', stepmode: 'backward'},
-                        {count: 7, label: '1W', step: 'day', stepmode: 'backward'},
-                        {count: 1, label: '1M', step: 'month', stepmode: 'backward'},
-                        {step: 'all', label: 'All'}
-                    ],
-                    bgcolor: '#161b22',
-                    activecolor: '#30363d',
-                    bordercolor: '#30363d',
-                    borderwidth: 1,
-                    font: {color: '#c9d1d9', size: 11},
-                    x: 0,
-                    y: 1.1
-                }
+                tickformat: "%b %d\n%H:%M"
             },
-            yaxis: { 
-                gridcolor: "#21262d", 
+            yaxis: {
+                gridcolor: "#21262d",
                 zerolinecolor: "#30363d",
                 showspikes: true,
                 spikethickness: 1,
                 spikedash: "dot",
                 spikecolor: "#58a6ff",
-                tickprefix: "$",
-                autorange: true,
-                fixedrange: false
+                tickformat: ".0%",
+                range: [0, 1],
+                autorange: false
             },
             hovermode: "x unified",
             dragmode: "pan",
@@ -181,10 +422,10 @@
                 y: 1.02,
                 xanchor: "right",
                 x: 1,
-                font: { color: "#c9d1d9" }
+                font: { color: "#c9d1d9", size: 11 }
             }
         };
-        
+
         var config = {
             responsive: true,
             displayModeBar: false,
@@ -192,67 +433,206 @@
             displaylogo: false
         };
 
-        function render() {
-            try {
-                var data = injected_data;
-                var traces = [];
-                
-                if (data.traces) {
-                    data.traces.forEach(t => {
-                        traces.push({
-                            x: t.x,
-                            y: t.y,
-                            name: t.name,
-                            type: 'scatter',
-                            mode: 'lines',
-                            line: { color: t.color, width: 2.5 },
-                            hovertemplate: '%{y:.1%}<extra>%{fullData.name}</extra>' // Format as percentage if it's 0-1
-                        });
+        function getTracesForInterval(interval) {
+            var traces = [];
+
+            // Check for multi-interval data structure
+            if (injected_data.intervals && injected_data.intervals[interval]) {
+                var intervalTraces = injected_data.intervals[interval].traces || [];
+                intervalTraces.forEach(function(t) {
+                    var xDates = t.x.map(function(ts) {
+                        return new Date(ts * 1000);
                     });
-                } else {
-                    // Fallback
+                    traces.push({
+                        x: xDates,
+                        y: t.y,
+                        name: t.name,
+                        type: 'scatter',
+                        mode: 'lines',
+                        line: { color: t.color, width: 2, shape: 'spline' },
+                        fill: 'tozeroy',
+                        fillcolor: t.color + '15',
+                        hovertemplate: '<b>%{y:.1%}</b><extra>' + t.name + '</extra>'
+                    });
+                });
+            }
+            // Fallback to legacy single-interval structure
+            else if (injected_data.traces) {
+                injected_data.traces.forEach(function(t) {
+                    var xDates = t.x.map(function(ts) {
+                        return new Date(ts * 1000);
+                    });
+                    traces.push({
+                        x: xDates,
+                        y: t.y,
+                        name: t.name,
+                        type: 'scatter',
+                        mode: 'lines',
+                        line: { color: t.color, width: 2, shape: 'spline' },
+                        fill: 'tozeroy',
+                        fillcolor: t.color + '15',
+                        hovertemplate: '<b>%{y:.1%}</b><extra>' + t.name + '</extra>'
+                    });
+                });
+            }
+
+            return traces;
+        }
+
+        function calculateYAxisRange(traces) {
+            // Find min/max across all traces
+            var allY = [];
+            traces.forEach(function(t) {
+                allY = allY.concat(t.y);
+            });
+
+            if (allY.length === 0) return [0, 1];
+
+            var minY = Math.min.apply(null, allY);
+            var maxY = Math.max.apply(null, allY);
+
+            // Add 10% padding above and below
+            var range = maxY - minY;
+            var padding = Math.max(range * 0.15, 0.02); // At least 2% padding
+
+            var paddedMin = Math.max(0, minY - padding);
+            var paddedMax = Math.min(1, maxY + padding);
+
+            // Ensure we have at least some visible range
+            if (paddedMax - paddedMin < 0.05) {
+                var mid = (paddedMin + paddedMax) / 2;
+                paddedMin = Math.max(0, mid - 0.05);
+                paddedMax = Math.min(1, mid + 0.05);
+            }
+
+            return [paddedMin, paddedMax];
+        }
+
+        function render(interval) {
+            try {
+                var traces = getTracesForInterval(interval);
+
+                if (traces.length === 0) {
+                    document.getElementById('interval-indicator').innerText = "No data for " + getIntervalLabel(interval);
+                    return;
                 }
 
-                Plotly.newPlot('chart', traces, layout, config);
+                // Calculate dynamic y-axis range based on actual data
+                var yRange = calculateYAxisRange(traces);
+
+                // Update layout with dynamic range
+                var dynamicLayout = Object.assign({}, layout, {
+                    yaxis: Object.assign({}, layout.yaxis, {
+                        range: yRange,
+                        autorange: false
+                    })
+                });
+
+                Plotly.react('chart', traces, dynamicLayout, config);
+
+                // Update indicator with price range info
+                var pointCount = traces.reduce(function(sum, t) { return sum + t.x.length; }, 0);
+                var rangeStr = (yRange[0] * 100).toFixed(0) + "% - " + (yRange[1] * 100).toFixed(0) + "%";
+                document.getElementById('interval-indicator').innerText = getIntervalLabel(interval) + " · " + pointCount + " pts · " + rangeStr;
+
             } catch (e) {
                 console.error(e);
+                document.getElementById('interval-indicator').innerText = "Error rendering chart";
             }
         }
 
         function toggleStar() {
             var btn = document.getElementById('star-btn');
             btn.classList.toggle('active');
-            btn.innerText = btn.classList.contains('active') ? "★" : "☆";
-            // Note: Visual only, doesn't sync back to CLI yet
+            var svg = btn.querySelector('svg');
+            if (btn.classList.contains('active')) {
+                svg.setAttribute('fill', '#e3b341');
+            } else {
+                svg.setAttribute('fill', 'none');
+            }
+        }
+
+        function toggleMenu() {
+            var dropdown = document.getElementById('dropdown');
+            dropdown.classList.toggle('open');
+        }
+
+        // Close menu when clicking outside
+        document.addEventListener('click', function(e) {
+            var menuContainer = document.querySelector('.menu-container');
+            if (!menuContainer.contains(e.target)) {
+                document.getElementById('dropdown').classList.remove('open');
+            }
+        });
+
+        function getCurrentTraces() {
+            return getTracesForInterval(currentInterval);
         }
 
         function downloadJSON() {
-            var dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(injected_data));
+            var exportData = {
+                title: injected_data.title,
+                interval: currentInterval,
+                data: injected_data.intervals ? injected_data.intervals[currentInterval] : {traces: injected_data.traces},
+                metadata: injected_data.metadata
+            };
+            var dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
             var anchor = document.createElement('a');
             anchor.setAttribute("href", dataStr);
-            anchor.setAttribute("download", "market_data.json");
+            anchor.setAttribute("download", "market_data_" + currentInterval + ".json");
             document.body.appendChild(anchor);
             anchor.click();
             anchor.remove();
+            toggleMenu();
         }
 
         function downloadCSV() {
-            var csvContent = "data:text/csv;charset=utf-8,Date,Price\n";
-            if (injected_data.traces && injected_data.traces.length > 0) {
-                 var t = injected_data.traces[0];
-                 for (var i=0; i < t.x.length; i++) {
-                     csvContent += t.x[i] + "," + t.y[i] + "\n";
-                 }
-            }
+            var lines = ["Timestamp,Date,Price,Outcome"];
+            var traces = getCurrentTraces();
+            traces.forEach(function(trace) {
+                for (var i = 0; i < trace.x.length; i++) {
+                    var date = trace.x[i].toISOString();
+                    var ts = Math.floor(trace.x[i].getTime() / 1000);
+                    lines.push(ts + "," + date + "," + trace.y[i] + "," + trace.name);
+                }
+            });
+            var csvContent = "data:text/csv;charset=utf-8," + encodeURIComponent(lines.join("\n"));
             var anchor = document.createElement('a');
             anchor.setAttribute("href", csvContent);
-            anchor.setAttribute("download", "market_data.csv");
+            anchor.setAttribute("download", "market_data_" + currentInterval + ".csv");
             document.body.appendChild(anchor);
             anchor.click();
             anchor.remove();
+            toggleMenu();
         }
 
-        render();
+        function copyLink() {
+            var tokenId = injected_data.metadata?.token_id || "";
+            navigator.clipboard.writeText(tokenId).then(function() {
+                alert("Token ID copied to clipboard!");
+            });
+            toggleMenu();
+        }
+
+        function resetZoom() {
+            // Recalculate proper y-range for current interval
+            var traces = getTracesForInterval(currentInterval);
+            var yRange = calculateYAxisRange(traces);
+            Plotly.relayout('chart', {
+                'xaxis.autorange': true,
+                'yaxis.range': yRange
+            });
+            toggleMenu();
+        }
+
+        // Handle interval changes - NOW ACTUALLY WORKS!
+        document.getElementById('interval-select').addEventListener('change', function() {
+            currentInterval = this.value;
+            render(currentInterval);
+        });
+
+        // Initial render
+        render(currentInterval);
         window.onresize = function() { Plotly.Plots.resize('chart'); };
     </script>
 </body>

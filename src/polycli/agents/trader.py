@@ -78,44 +78,38 @@ class TraderAgent(BaseAgent):
             self.pre_trade_logic()
 
             # 1. Fetch Events
-            logger.info("Trader: finding events")
+            await self.publish_status("Fetching events...")
             events = await self.provider.get_events()
             if not events:
                 return {"error": "No events found", "success": False}
-            logger.info(f"Trader: found {len(events)} events")
 
             # 2. Filter Events with RAG
-            logger.info("Trader: filtering events with RAG")
+            await self.publish_status(f"RAG filtering {len(events)} events...")
             filtered_events = await self.executor.filter_events_with_rag(events)
             if not filtered_events:
                 return {"error": "No events passed RAG filtering", "success": False}
-            logger.info(f"Trader: filtered to {len(filtered_events)} events")
 
             # 3. Map events to markets
-            # Adaptation: reference had a helper for this, we'll implement or use provider
+            await self.publish_status(f"Mapping {len(filtered_events)} events to markets...")
             markets = []
             for e_doc in filtered_events:
-                # e_doc is a tuple (Document, score) from Chroma
                 e_meta = e_doc[0].metadata
                 e_id = e_meta.get("id")
-                # Fetch markets for this event
                 e_markets = await self.provider.get_markets(event_id=e_id)
                 markets.extend(e_markets)
             
             if not markets:
                 return {"error": "No markets found for filtered events", "success": False}
-            logger.info(f"Trader: found {len(markets)} markets")
 
             # 4. Filter Markets with RAG
-            logger.info("Trader: filtering markets with RAG")
+            await self.publish_status(f"RAG filtering {len(markets)} markets...")
             filtered_markets = await self.executor.filter_markets(markets)
             if not filtered_markets:
                 return {"error": "No markets passed RAG filtering", "success": False}
-            logger.info(f"Trader: filtered to {len(filtered_markets)} markets")
 
             # 5. Source Best Trade
+            await self.publish_status("Calculating best trade strategy...")
             market = filtered_markets[0]
-            logger.info("Trader: calculating best trade for market", market_id=market[0].metadata.get("id"))
             best_trade = await self.executor.source_best_trade(market)
             logger.info(f"Trader: calculated trade: {best_trade}")
 

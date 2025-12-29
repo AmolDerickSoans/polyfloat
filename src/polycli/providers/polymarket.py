@@ -4,7 +4,7 @@ import json
 from typing import List, Optional, Dict, Any
 from py_clob_client.client import ClobClient
 from polycli.providers.base import BaseProvider
-from polycli.models import Event, Market, OrderBook, Trade, Position, Order, Side, OrderType, MarketStatus, OrderStatus, PriceLevel
+from polycli.models import Event, Market, OrderBook, Trade, Position, Order, Side, OrderType, MarketStatus, OrderStatus, PriceLevel, PricePoint
 import structlog
 
 logger = structlog.get_logger()
@@ -389,6 +389,79 @@ class PolyProvider(BaseProvider):
             
         except Exception as e:
             logger.error("Error fetching last trade price for charting", market_id=market_id, error=str(e))
+            return []
+
+    async def get_prices_history(
+        self,
+        token_id: str,
+        interval: str = "1d",
+        fidelity: int = 60
+    ) -> List[PricePoint]:
+        """
+        Fetch historical price data for charting from the CLOB API.
+        
+        Args:
+            token_id: The CLOB token ID (from clobTokenIds)
+            interval: Time interval - "1h", "6h", "1d", "1w", "max"
+            fidelity: Resolution in minutes (e.g., 60 for hourly data points)
+            
+        Returns:
+            List of PricePoint objects with timestamp and price
+        """
+        if not token_id:
+            return []
+        
+        try:
+            params = {
+                "market": token_id,
+                "interval": interval,
+                "fidelity": fidelity
+            }
+            
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(
+                    f"{self.clob_host}/prices-history",
+                    params=params
+                )
+                response.raise_for_status()
+                data = response.json()
+            
+            history = data.get("history", [])
+            
+            if not history:
+                logger.warning("No price history returned", token_id=token_id[:20])
+                return []
+            
+            # Convert to PricePoint objects
+            price_points = [
+                PricePoint(t=float(point["t"]), p=float(point["p"]))
+                for point in history
+                if "t" in point and "p" in point
+            ]
+            
+            logger.info(
+                "Fetched price history",
+                token_id=token_id[:20],
+                interval=interval,
+                points=len(price_points)
+            )
+            
+            return price_points
+            
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "HTTP error fetching price history",
+                token_id=token_id[:20],
+                status_code=e.response.status_code,
+                error=str(e)
+            )
+            return []
+        except Exception as e:
+            logger.error(
+                "Error fetching price history",
+                token_id=token_id[:20],
+                error=str(e)
+            )
             return []
 
     async def get_news(

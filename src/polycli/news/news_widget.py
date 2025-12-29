@@ -1,225 +1,277 @@
 from textual.widgets import Label, Button, Static
 from textual.containers import Vertical, Horizontal
 from textual import work
-from typing import List, Dict, Any
+from textual.reactive import reactive
+from typing import List, Dict, Any, Optional
 import asyncio
+import structlog
+import time
 
-logger = None
+logger = structlog.get_logger()
 
 
-class NewsWidget(Vertical):
+class NewsPanel(Vertical):
     """
-    Simple News Widget for right panel
+    Bloomberg-style News Panel for the TUI right panel.
+    Displays news with impact indicators, category filters, and auto-updates.
     """
 
-    news_items: List[Any] = []
+    news_items: reactive[List[Dict[str, Any]]] = reactive([])
     current_filters: Dict[str, Any] = {}
     is_loading: bool = False
+    selected_category: reactive[Optional[str]] = reactive(None)
 
-    def __init__(self, **kwargs):
+    def __init__(self, news_api_client=None, news_ws_client=None, **kwargs):
         super().__init__(**kwargs)
-        self.news_api_client = None
+        self.news_api_client = news_api_client
+        self.news_ws_client = news_ws_client
+        self._last_refresh = 0
 
     def compose(self):
-        """Compose news widget"""
+        """Compose news panel"""
         yield Static("[bold cyan]📰 NEWS[/bold cyan]", id="news_header")
 
-        with Horizontal(id="news_controls"):
-            yield Button("Refresh", id="refresh_news", variant="primary")
+        # Category filter buttons
+        with Horizontal(id="news_filters", classes="news-filters"):
+            yield Button("All", id="cat_all", variant="primary", classes="cat-btn active")
+            yield Button("🏛️", id="cat_politics", classes="cat-btn")
+            yield Button("₿", id="cat_crypto", classes="cat-btn")
+            yield Button("📈", id="cat_economics", classes="cat-btn")
+            yield Button("🏀", id="cat_sports", classes="cat-btn")
 
-        yield Static(id="news_items_display")
+        # News items display
+        yield Static(id="news_items_display", classes="news-display")
 
+        # Footer with filter info and stats
         with Horizontal(id="news_footer", classes="news-footer"):
-            yield Static(id="filter_indicator")
-            yield Static(id="stats_display")
+            yield Static(id="filter_indicator", classes="filter-info")
+            yield Button("↻", id="refresh_news", classes="refresh-btn")
 
     def on_mount(self):
         """Initialize widget on mount"""
-        self.update_news_display()
+        self._update_display()
+        # Auto-refresh every 60 seconds
+        self.set_interval(60, self._auto_refresh)
 
-    def set_api_client(self, api_client):
-        """Set News API client"""
+    def set_clients(self, api_client, ws_client=None):
+        """Set API and WebSocket clients"""
         self.news_api_client = api_client
+        self.news_ws_client = ws_client
+        if ws_client:
+            ws_client.add_callback("news_item", self._on_ws_news)
+
+    async def _on_ws_news(self, news_data: Dict[str, Any]):
+        """Handle incoming WebSocket news"""
+        # Check if matches current filter
+        if self._matches_filter(news_data):
+            # Insert at beginning
+            current = list(self.news_items)
+            current.insert(0, news_data)
+            self.news_items = current[:10]  # Keep max 10
+
+    def _matches_filter(self, news_data: Dict[str, Any]) -> bool:
+        """Check if news item matches current filter"""
+        if not self.selected_category:
+            return True
+        return news_data.get("category") == self.selected_category
+
+    def watch_news_items(self, items: List[Dict[str, Any]]):
+        """React to news items change"""
+        self._update_display()
+
+    def watch_selected_category(self, category: Optional[str]):
+        """React to category filter change"""
+        asyncio.create_task(self._refresh_news())
 
     @work(exclusive=True)
-    async def refresh_news(self):
+    async def _refresh_news(self):
         """Refresh news with current filters"""
         if self.is_loading:
             return
 
         self.is_loading = True
-
         display = self.query_one("#news_items_display", Static)
-        display.update("[dim]Refreshing news...[/dim]")
+        display.update("[dim]Loading...[/dim]")
 
         try:
             if not self.news_api_client:
-                display.update("[dim]News API not configured[/dim]")
-                self.is_loading = False
+                display.update("[dim]News service unavailable[/dim]")
                 return
 
-            filters = self.current_filters
-
             params = {"limit": 10}
-            if filters.get("category"):
-                params["category"] = filters["category"]
-            if filters.get("min_impact"):
-                params["min_impact"] = filters["min_impact"]
-            if filters.get("ticker"):
-                params["ticker"] = filters["ticker"]
+            if self.selected_category:
+                params["category"] = self.selected_category
+            if self.current_filters.get("ticker"):
+                params["ticker"] = self.current_filters["ticker"]
+            if self.current_filters.get("person"):
+                params["person"] = self.current_filters["person"]
 
-            result = await self.news_api_client.get_news(**params)
-
-            if result.get("success"):
-                self.news_items = result["items"]
-                self.update_news_display()
-                print(f"[cyan]Refreshed {len(self.news_items)} news items[/cyan]")
-            else:
-                display.update(f"[red]Error: {result.get('error', 'Unknown')}[/red]")
+            items = await self.news_api_client.get_news(**params)
+            self.news_items = [item.model_dump() for item in items]
+            self._last_refresh = time.time()
+            logger.debug("News refreshed", count=len(self.news_items))
 
         except Exception as e:
-            display.update(f"[red]Error: {str(e)}[/red]")
+            logger.error("News refresh failed", error=str(e))
+            display.update(f"[red]Error loading news[/red]")
 
         finally:
             self.is_loading = False
 
-    def apply_filters(self, filters: Dict[str, Any]):
-        """Apply filters to news"""
-        self.current_filters = filters
-        asyncio.create_task(self.refresh_news())
+    def _auto_refresh(self):
+        """Auto-refresh if not recently refreshed"""
+        if time.time() - self._last_refresh > 30:
+            asyncio.create_task(self._refresh_news())
 
-    def on_market_changed(self, market):
-        """Auto-filter news when market is selected"""
+    def _update_display(self):
+        """Update news display"""
         try:
-            question = getattr(market, "question", "")
-
-            tickers = []
-            people = []
-            keywords = []
-
-            crypto_tickers = ["BTC", "ETH", "SOL", "ADA", "DOGE", "MATIC", "AVAX"]
-            for ticker in crypto_tickers:
-                if ticker.upper() in question.upper():
-                    tickers.append(ticker)
-
-            people_names = [
-                "Trump",
-                "Biden",
-                "Harris",
-                "Obama",
-                "Bush",
-                "Clinton",
-                "Powell",
-                "Yellen",
-                "Bernanke",
-                "Musk",
-                "Vitalik",
-            ]
-            for person in people_names:
-                if person.lower() in question.lower():
-                    people.append(person)
-
-            keywords_lower = [
-                "election",
-                "fed",
-                "rate",
-                "inflation",
-                "crypto",
-                "bitcoin",
-                "ethereum",
-                "price",
-                "market",
-                "trade",
-                "president",
-                "congress",
-                "senate",
-                "politics",
-            ]
-            for kw in keywords_lower:
-                if kw in question.lower():
-                    keywords.append(kw)
-
-            if tickers or people or keywords:
-                filters = {}
-                if tickers:
-                    filters["ticker"] = tickers[0]
-                if people:
-                    filters["person"] = people[0]
-                if keywords:
-                    filters["keywords"] = ",".join(keywords[:3])
-
-                self.apply_filters(filters)
-                filter_indicator = self.query_one("#filter_indicator", Static)
-                filter_indicator.update(
-                    f"[cyan]🔍 Filtered for: {question[:30]}[/cyan]"
-                )
-
-        except Exception as e:
-            print(f"[red]Failed to auto-filter news: {str(e)}[/red]")
-
-    def clear_filters(self):
-        """Clear all filters"""
-        self.current_filters = {}
-        asyncio.create_task(self.refresh_news())
-        filter_indicator = self.query_one("#filter_indicator", Static)
-        filter_indicator.update("[dim]Filters: All news[/dim]")
-
-    def update_news_display(self):
-        """Update news text display"""
-        display = self.query_one("#news_items_display", Static)
+            display = self.query_one("#news_items_display", Static)
+        except Exception:
+            return  # Widget not mounted yet
 
         if not self.news_items:
-            display.update("[dim]No news - Press Refresh[/dim]")
+            display.update("[dim]No news available[/dim]")
             return
 
         lines = []
-
-        for item in self.news_items[:5]:
+        for item in self.news_items[:7]:  # Show max 7 items
             impact = item.get("impact_score", 0)
 
+            # Time ago
+            published = item.get("published_at", 0)
+            age = self._format_age(published)
+
+            # Impact indicator
             if impact >= 80:
-                impact_label = "[red]HIGH[/red]"
+                indicator = "[bold red]🔴[/bold red]"
             elif impact >= 60:
-                impact_label = "[yellow]MED[/yellow]"
+                indicator = "[yellow]🟡[/yellow]"
             else:
-                impact_label = "[green]LOW[/green]"
+                indicator = "[dim]⚪[/dim]"
 
-            headline = item.get("title", item.get("content", ""))[:45]
-            source_badge = (
-                "[blue]𝕐[/blue]"
-                if item.get("source") == "nitter"
-                else "[yellow]📰[/yellow]"
-            )
+            # Source badge
+            source = item.get("source", "rss")
+            source_badge = "[blue]𝕏[/blue]" if source == "nitter" else "[dim]📰[/dim]"
 
-            lines.append(
-                f"{impact_label} [{impact:.0f}]  " f"{source_badge} {headline}\n"
-            )
+            # Headline
+            headline = item.get("title") or item.get("content", "")
+            headline = headline[:40] + "..." if len(headline) > 40 else headline
+
+            lines.append(f"{indicator} {age:>4} {source_badge} {headline}")
 
         display.update("\n".join(lines))
-        self.update_stats()
+        self._update_filter_indicator()
 
-    def update_stats(self):
-        """Update statistics display"""
-        stats_display = self.query_one("#stats_display", Static)
+    def _format_age(self, timestamp: float) -> str:
+        """Format timestamp as relative age"""
+        if not timestamp:
+            return "?"
+        age_seconds = time.time() - timestamp
+        if age_seconds < 60:
+            return f"{int(age_seconds)}s"
+        elif age_seconds < 3600:
+            return f"{int(age_seconds / 60)}m"
+        elif age_seconds < 86400:
+            return f"{int(age_seconds / 3600)}h"
+        else:
+            return f"{int(age_seconds / 86400)}d"
 
-        total = len(self.news_items)
+    def _update_filter_indicator(self):
+        """Update filter indicator"""
+        try:
+            indicator = self.query_one("#filter_indicator", Static)
+            parts = []
+            if self.selected_category:
+                parts.append(f"[cyan]{self.selected_category}[/cyan]")
+            if self.current_filters.get("ticker"):
+                parts.append(f"[green]${self.current_filters['ticker']}[/green]")
+            if self.current_filters.get("person"):
+                parts.append(f"[yellow]{self.current_filters['person']}[/yellow]")
 
-        if total == 0:
-            stats_display.update("[dim]Stats: 0 items[/dim]")
-            return
-
-        high_impact = sum(
-            1 for item in self.news_items if item.get("impact_score", 0) >= 80
-        )
-        avg_impact = (
-            sum(item.get("impact_score", 0) for item in self.news_items) / total
-        )
-
-        stats_display.update(
-            f"[dim]Stats: {total} items | High: {high_impact} | Avg: {avg_impact:.1f}[/dim]"
-        )
+            if parts:
+                indicator.update(" ".join(parts))
+            else:
+                indicator.update("[dim]All news[/dim]")
+        except Exception:
+            pass
 
     def on_button_pressed(self, event: Button.Pressed):
-        """Handle button press"""
-        if event.button.id == "refresh_news":
-            asyncio.create_task(self.refresh_news())
+        """Handle button presses"""
+        button_id = event.button.id
+
+        if button_id == "refresh_news":
+            asyncio.create_task(self._refresh_news())
+        elif button_id == "cat_all":
+            self.selected_category = None
+            self._update_button_states(button_id)
+        elif button_id == "cat_politics":
+            self.selected_category = "politics"
+            self._update_button_states(button_id)
+        elif button_id == "cat_crypto":
+            self.selected_category = "crypto"
+            self._update_button_states(button_id)
+        elif button_id == "cat_economics":
+            self.selected_category = "economics"
+            self._update_button_states(button_id)
+        elif button_id == "cat_sports":
+            self.selected_category = "sports"
+            self._update_button_states(button_id)
+
+    def _update_button_states(self, active_id: str):
+        """Update category button visual states"""
+        for btn_id in ["cat_all", "cat_politics", "cat_crypto", "cat_economics", "cat_sports"]:
+            try:
+                btn = self.query_one(f"#{btn_id}", Button)
+                if btn_id == active_id:
+                    btn.variant = "primary"
+                else:
+                    btn.variant = "default"
+            except Exception:
+                pass
+
+    def filter_by_market(self, market):
+        """Auto-filter news based on selected market"""
+        if not market:
+            return
+
+        question = getattr(market, "question", "")
+        filters = {}
+
+        # Extract entities from market question
+        crypto_tickers = ["BTC", "ETH", "SOL", "ADA", "DOGE", "MATIC", "AVAX", "XRP", "BNB"]
+        for ticker in crypto_tickers:
+            if ticker.upper() in question.upper():
+                filters["ticker"] = ticker
+                break
+
+        people_names = [
+            "Trump", "Biden", "Harris", "Obama", "Powell", "Yellen",
+            "Musk", "Vitalik", "Buterin", "Zuckerberg", "Altman"
+        ]
+        for person in people_names:
+            if person.lower() in question.lower():
+                filters["person"] = person
+                break
+
+        if filters:
+            self.current_filters = filters
+            asyncio.create_task(self._refresh_news())
+
+    def clear_market_filter(self):
+        """Clear market-specific filter"""
+        self.current_filters = {}
+        asyncio.create_task(self._refresh_news())
+
+    def add_news(self, news_data: Dict[str, Any]):
+        """Add a single news item (for WebSocket updates)"""
+        if self._matches_filter(news_data):
+            current = list(self.news_items)
+            current.insert(0, news_data)
+            self.news_items = current[:10]
+
+
+# Keep old class for backwards compatibility
+class NewsWidget(NewsPanel):
+    """Alias for backwards compatibility"""
+    pass
