@@ -1,12 +1,16 @@
 import typer
 import os
 import sys
+from pathlib import Path
 from typing import Optional
+from decimal import Decimal
 from rich.console import Console
 from rich.table import Table
 from rich.prompt import Prompt
 from rich.panel import Panel
 from dotenv import load_dotenv, set_key
+from polycli.utils.config import get_paper_mode, set_paper_mode
+from polycli.setup import SetupWizard
 
 # Load existing environment variables
 load_dotenv(override=True)
@@ -18,6 +22,12 @@ app = typer.Typer(
 )
 markets_app = typer.Typer(help="Market data commands")
 app.add_typer(markets_app, name="markets")
+
+paper_app = typer.Typer(help="Paper trading commands")
+app.add_typer(paper_app, name="paper")
+
+risk_app = typer.Typer(help="Risk management commands")
+app.add_typer(risk_app, name="risk")
 
 console = Console()
 
@@ -403,6 +413,21 @@ def interactive_menu():
             console.print("[red]Invalid option[/red]")
 
 
+@app.command("setup")
+def setup_wizard():
+    """Run interactive setup wizard."""
+    from polycli.setup import SetupWizard
+    
+    wizard = SetupWizard()
+    result = wizard.run()
+    
+    if result == "launch_dashboard":
+        # Launch dashboard after setup
+        from polycli.tui import DashboardApp
+        app = DashboardApp()
+        app.run()
+
+
 @app.callback(invoke_without_command=True)
 def main_callback(
     ctx: typer.Context,
@@ -412,6 +437,7 @@ def main_callback(
     kalshi_pass: Optional[str] = typer.Option(None, "--kalshi-pass", help="Kalshi Password"),
     kalshi_key_id: Optional[str] = typer.Option(None, "--kalshi-key-id", help="Kalshi Key ID"),
     kalshi_pem: Optional[str] = typer.Option(None, "--kalshi-pem", help="Kalshi Private Key Path"),
+    paper: bool = typer.Option(False, "--paper", "-p", help="Enable paper trading mode"),
     save: bool = typer.Option(False, "--save", help="Persist credentials to .env"),
 ):
     """
@@ -444,9 +470,36 @@ def main_callback(
         
         load_dotenv(env_file, override=True)
 
+    # Handle paper mode
+    if paper:
+        set_paper_mode(True)
+
     # Only print header and check envs if not running a help command
     if "--help" not in sys.argv:
         print_header()
+        if get_paper_mode():
+            console.print(
+                Panel(
+                    "[bold yellow]⚠ PAPER TRADING MODE ENABLED[/bold yellow]\n"
+                    "All trades are simulated - No real money will be used!",
+                    border_style="yellow",
+                )
+            )
+        
+        # Check for first run and auto-trigger setup wizard
+        config_path = Path.home() / ".polycli" / "config.yaml"
+        if not config_path.exists() and ctx.invoked_subcommand != "setup":
+            console.print("[yellow]First run detected - launching setup wizard...[/yellow]")
+            wizard = SetupWizard()
+            result = wizard.run()
+            
+            if result == "launch_dashboard":
+                # Launch dashboard after setup
+                from polycli.tui import DashboardApp
+                dashboard_app = DashboardApp()
+                dashboard_app.run()
+            return
+        
         ensure_credentials()
 
     if ctx.invoked_subcommand is None:
@@ -533,6 +586,213 @@ def search_markets(
 
 arb_app = typer.Typer(help="Arbitrage scanning commands")
 app.add_typer(arb_app, name="arb")
+
+
+@paper_app.command(name="status")
+def paper_status():
+    """Show paper trading balance and P&L"""
+    console.print("[bold cyan]Paper Trading Account Status[/bold cyan]")
+    
+    try:
+        from polycli.paper.provider import PaperTradingProvider
+        
+        provider = PaperTradingProvider(PolyProvider())
+        balance = asyncio.run(provider.get_balance())
+        positions = asyncio.run(provider.get_positions())
+        
+        console.print()
+        console.print(f"[bold]Balance:[/bold] ${balance['balance']:.2f}")
+        console.print(f"[bold]Positions:[/bold] {len(positions)}")
+        
+        if positions:
+            console.print()
+            table = Table(title="Open Positions")
+            table.add_column("Market", style="cyan")
+            table.add_column("Side", style="magenta")
+            table.add_column("Size", justify="right")
+            table.add_column("Avg Price", justify="right")
+            
+            for pos in positions:
+                table.add_row(
+                    pos.get("market_id", "N/A"),
+                    pos.get("outcome", "N/A"),
+                    f"{pos.get('size', 0):.2f}",
+                    f"${pos.get('avg_price', 0):.2f}"
+                )
+            
+            console.print(table)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+
+@paper_app.command(name="reset")
+def paper_reset(
+    balance: float = typer.Option(10000.0, "--balance", "-b", help="Starting balance")
+):
+    """Reset paper trading account"""
+    console.print(f"[bold yellow]Resetting paper account to ${balance:.2f}[/bold yellow]")
+    
+    try:
+        from polycli.paper.provider import PaperTradingProvider
+        
+        provider = PaperTradingProvider(PolyProvider())
+        asyncio.run(provider.reset(balance))
+        console.print("[bold green]✓ Account reset successfully[/bold green]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+
+@paper_app.command(name="history")
+def paper_history(
+    limit: int = typer.Option(10, "--limit", "-l", help="Number of trades to show")
+):
+    """Show paper trading trade history"""
+    console.print(f"[bold cyan]Paper Trading History (Last {limit} trades)[/bold cyan]")
+    
+    try:
+        from polycli.paper.provider import PaperTradingProvider
+        
+        provider = PaperTradingProvider(PolyProvider())
+        trades = asyncio.run(provider.get_trades(limit=limit))
+        
+        if not trades:
+            console.print("[yellow]No trades found[/yellow]")
+            return
+        
+        table = Table(title="Trade History")
+        table.add_column("Time", style="dim")
+        table.add_column("Market", style="cyan")
+        table.add_column("Side", style="magenta")
+        table.add_column("Size", justify="right")
+        table.add_column("Price", justify="right")
+        table.add_column("Fee", justify="right")
+        table.add_column("Total", justify="right")
+        
+        for trade in trades:
+            table.add_row(
+                trade.get("executed_at", "N/A"),
+                trade.get("market_id", "N/A"),
+                trade.get("side", "N/A"),
+                f"{trade.get('size', 0):.2f}",
+                f"${trade.get('price', 0):.2f}",
+                f"${trade.get('fee', 0):.2f}",
+                f"${trade.get('total', 0):.2f}"
+            )
+        
+        console.print(table)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+
+@risk_app.command("status")
+def risk_status():
+    """Show current risk status and metrics."""
+    try:
+        from polycli.risk import RiskGuard, RiskConfig
+
+        console.print("[bold cyan]Risk Management Status[/bold cyan]")
+        console.print()
+
+        guard = RiskGuard()
+        config = RiskConfig.load()
+
+        console.print("[bold]Configuration:[/bold]")
+        console.print(f"  Max Position Size: [cyan]${config.max_position_size_usd:.2f}[/cyan]")
+        console.print(f"  Daily Loss Limit: [cyan]${config.daily_loss_limit_usd:.2f}[/cyan]")
+        console.print(f"  Trading Enabled: [green]Yes[/green]" if config.trading_enabled else "  Trading Enabled: [red]No[/red]")
+        console.print()
+
+        status = guard.get_status()
+        console.print("[bold]Current Status:[/bold]")
+        console.print(f"  Circuit Breaker: [red]TRIGGERED[/red]" if status.get("circuit_breaker_active", False) else "  Circuit Breaker: [green]OK[/green]")
+        console.print(f"  Today's Loss: [cyan]${status.get('daily_loss_usd', 0):.2f}[/cyan]")
+        console.print(f"  Open Positions: [cyan]{status.get('position_count', 0)}[/cyan]")
+        console.print(f"  Total Exposure: [cyan]${status.get('total_exposure_usd', 0):.2f}[/cyan]")
+    except Exception as e:
+        console.print(f"[red]Error fetching risk status: {e}[/red]")
+
+
+@risk_app.command("config")
+def risk_config(
+    max_position: Optional[float] = typer.Option(None, help="Max position size in USD"),
+    daily_loss_limit: Optional[float] = typer.Option(None, help="Max daily loss in USD"),
+    trading_enabled: Optional[bool] = typer.Option(None, help="Enable/disable trading"),
+):
+    """Configure risk parameters."""
+    try:
+        from polycli.risk import RiskConfig
+
+        config = RiskConfig.load()
+        if max_position is not None:
+            config.max_position_size_usd = Decimal(str(max_position))
+        if daily_loss_limit is not None:
+            config.daily_loss_limit_usd = Decimal(str(daily_loss_limit))
+        if trading_enabled is not None:
+            config.trading_enabled = trading_enabled
+        config.save()
+        console.print("[green]Risk config updated[/green]")
+    except Exception as e:
+        console.print(f"[red]Error updating config: {e}[/red]")
+
+
+@risk_app.command("pause")
+def risk_pause(minutes: int = typer.Option(60, help="Cooldown minutes")):
+    """Trigger circuit breaker to pause all trading."""
+    try:
+        from polycli.risk import RiskGuard
+
+        guard = RiskGuard()
+        guard.trigger_circuit_breaker("Manual pause via CLI", minutes)
+        console.print(f"[yellow]Trading paused for {minutes} minutes[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error pausing trading: {e}[/red]")
+
+
+@risk_app.command("resume")
+def risk_resume():
+    """Resume trading (reset circuit breaker)."""
+    try:
+        from polycli.risk import RiskGuard
+
+        guard = RiskGuard()
+        guard.reset_circuit_breaker()
+        console.print("[green]Trading resumed[/green]")
+    except Exception as e:
+        console.print(f"[red]Error resuming trading: {e}[/red]")
+
+
+@risk_app.command("blocked")
+def risk_blocked(limit: int = typer.Option(20, help="Number of entries")):
+    """Show recently blocked trades."""
+    try:
+        from polycli.risk import RiskAuditStore
+
+        store = RiskAuditStore()
+        blocked = store.get_rejected_trades(limit)
+
+        if not blocked:
+            console.print("[yellow]No blocked trades found[/yellow]")
+            return
+
+        table = Table(title=f"Blocked Trades (Last {limit})")
+        table.add_column("Time", style="dim")
+        table.add_column("Market", style="cyan")
+        table.add_column("Reason", style="red")
+        table.add_column("Amount", justify="right")
+        table.add_column("Exposure", justify="right")
+
+        for trade in blocked:
+            table.add_row(
+                trade.get("timestamp", "N/A"),
+                trade.get("market_id", "N/A"),
+                trade.get("rejection_reason", "Unknown"),
+                f"${trade.get('trade_amount_usd', 0):.2f}",
+                f"${trade.get('current_exposure_usd', 0):.2f}",
+            )
+
+        console.print(table)
+    except Exception as e:
+        console.print(f"[red]Error fetching blocked trades: {e}[/red]")
 
 
 @arb_app.command(name="scan")
@@ -706,23 +966,128 @@ def deploy_bot(
     asyncio.run(run_bot())
 
 
-@app.command()
-def analytics():
-    """[PRO] Run advanced market analytics (Correlation, VaR)"""
-    import os
+analytics_app = typer.Typer(help="Trading analytics commands")
+app.add_typer(analytics_app, name="analytics")
 
-    is_pro = os.getenv("POLYCLI_PRO_KEY") is not None
+@analytics_app.command("summary")
+def analytics_summary(
+    days: int = typer.Option(30, help="Number of days to analyze"),
+    provider: str = typer.Option("polymarket", help="Provider to analyze")
+):
+    """Show performance summary."""
+    import asyncio
+    from polycli.analytics import PerformanceCalculator
+    
+    async def run():
+        calc = PerformanceCalculator()
+        metrics = await calc.calculate_metrics(provider, days)
+        
+        console.print(f"\n[bold]Performance Summary ({days} days)[/bold]")
+        console.print(f"Total P&L: ${metrics.total_pnl:+.2f}")
+        console.print(f"Win Rate: {metrics.win_rate:.1%}")
+        console.print(f"Total Trades: {metrics.total_trades}")
+        console.print(f"Profit Factor: {metrics.profit_factor:.2f}")
+        console.print(f"Max Drawdown: {metrics.max_drawdown_pct:.1%}")
+    
+    asyncio.run(run())
 
-    if not is_pro:
-        console.print(
-            "[bold red]Access Denied[/bold red]: This feature requires a Pro Tier license."
+@analytics_app.command("export")
+def analytics_export(
+    output: Path = typer.Option(Path("trades.csv"), help="Output file"),
+    days: int = typer.Option(30, help="Days to export")
+):
+    """Export trade history to CSV."""
+    from polycli.analytics import AnalyticsStore
+    import csv
+    
+    store = AnalyticsStore()
+    from datetime import datetime, timedelta
+    trades = store.get_trades(start_date=datetime.utcnow() - timedelta(days=days))
+    
+    with open(output, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Date", "Market", "Side", "Size", "Price", "Total", "Fee", "P&L"])
+        for t in trades:
+            writer.writerow([
+                t.timestamp.isoformat(),
+                t.market_name,
+                t.side,
+                t.size,
+                t.price,
+                t.total,
+                t.fee,
+                t.pnl or ""
+            ])
+    
+    console.print(f"[green]Exported {len(trades)} trades to {output}[/green]")
+
+
+@app.command("stop")
+def emergency_stop(
+    cancel_orders: bool = typer.Option(True, help="Cancel all pending orders"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation")
+):
+    """
+    Trigger emergency stop - halt all agents and optionally cancel orders
+    """
+    import asyncio
+    from polycli.emergency import EmergencyStopController, StopReason
+
+    if not force:
+        confirm = typer.confirm(
+            "This will halt all agents and cancel pending orders. Continue?",
+            abort=True
         )
-        console.print("Set POLYCLI_PRO_KEY environment variable to unlock.")
-        raise typer.Exit(code=1)
 
-    console.print("[bold green]Access Granted[/bold green]: Running Pro Analytics...")
-    console.print("Calculating Correlation Matrix... [Done]")
-    console.print("Value at Risk (VaR): $450.20")
+    async def do_stop():
+        controller = EmergencyStopController()
+        event = await controller.trigger_stop(
+            reason=StopReason.USER_INITIATED,
+            cancel_orders=cancel_orders
+        )
+        return event
+
+    event = asyncio.run(do_stop())
+
+    console.print("[bold red]EMERGENCY STOP ACTIVATED[/bold red]")
+    console.print(f"  Event ID: {event.id}")
+    console.print(f"  Orders cancelled: {event.orders_cancelled}")
+    console.print(f"  WebSockets closed: {event.websockets_closed}")
+    console.print("\n[yellow]Use 'poly resume' to restart trading[/yellow]")
+
+
+@app.command("resume")
+def resume_trading():
+    """Resume trading after emergency stop"""
+    import asyncio
+    from polycli.emergency import EmergencyStopController
+
+    controller = EmergencyStopController()
+
+    if not controller.is_stopped:
+        console.print("[green]System is not stopped, nothing to resume[/green]")
+        return
+
+    asyncio.run(controller.resume(resumed_by="cli"))
+    console.print("[green]Trading resumed[/green]")
+
+
+@app.command("status")
+def system_status():
+    """Show system status including emergency stop state"""
+    from polycli.emergency import EmergencyStopController
+
+    controller = EmergencyStopController()
+
+    if controller.is_stopped:
+        event = controller.current_event
+        console.print("[bold red]SYSTEM STOPPED[/bold red]")
+        if event:
+            console.print(f"  Reason: {event.reason.value}")
+            console.print(f"  Time: {event.timestamp}")
+            console.print(f"  Description: {event.description}")
+    else:
+        console.print("[green]System running normally[/green]")
 
 
 if __name__ == "__main__":

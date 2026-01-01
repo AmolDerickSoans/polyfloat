@@ -13,6 +13,7 @@ from .tools.registry import ToolRegistry
 from polycli.storage.redis_store import RedisStore
 from polycli.storage.sqlite_store import SQLiteStore
 from polycli.providers.base import BaseProvider
+from polycli.emergency import EmergencyStopController, EmergencyStopError
 
 logger = structlog.get_logger()
 
@@ -176,6 +177,9 @@ class BaseAgent(ABC):
         # Initialize news interface for market context
         self.news_interface = AgentNewsInterface(api_client=news_api_client)
         self.news_available = news_api_client is not None
+        
+        # Initialize emergency controller
+        self._emergency_controller = EmergencyStopController()
         
         # Initialize LLM
         self._init_llm()

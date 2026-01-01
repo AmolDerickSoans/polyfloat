@@ -5,6 +5,7 @@ import structlog
 from polycli.models import Side, OrderType
 from polycli.providers.polymarket import PolyProvider
 from polycli.providers.kalshi import KalshiProvider
+from polycli.risk import RiskGuard, RiskConfig
 
 logger = structlog.get_logger()
 
@@ -15,6 +16,68 @@ class TradingTools:
     def __init__(self, poly_provider: PolyProvider, kalshi_provider: Optional[KalshiProvider] = None):
         self.poly = poly_provider
         self.kalshi = kalshi_provider
+        self._paper_provider: Optional[Any] = None
+        self._risk_guard: Optional[RiskGuard] = None
+    
+    def _get_provider(self, provider: str = "polymarket"):
+        """Get the appropriate provider (paper or real)."""
+        from polycli.utils.config import get_paper_mode
+        from polycli.paper import PaperTradingProvider
+        
+        if get_paper_mode():
+            if self._paper_provider is None:
+                self._paper_provider = PaperTradingProvider(self.poly)
+            return self._paper_provider
+        
+        if provider.lower() == "polymarket":
+            return self.poly
+        elif provider.lower() == "kalshi" and self.kalshi:
+            return self.kalshi
+        return None
+    
+    def _get_risk_guard(self) -> RiskGuard:
+        """Get or create risk guard instance."""
+        if self._risk_guard is None:
+            self._risk_guard = RiskGuard(
+                get_balance_fn=self._get_balance_for_risk,
+                get_positions_fn=self._get_positions_for_risk,
+                get_price_fn=self._get_price_for_risk
+            )
+        return self._risk_guard
+    
+    async def _get_balance_for_risk(self, provider: str = "polymarket") -> Dict[str, Any]:
+        """Returns balance info for risk checks."""
+        balance_info = await self.get_wallet_balance(provider)
+        return {
+            "balance": balance_info.get("balance", 0),
+            "total_value": balance_info.get("balance", 0)
+        }
+    
+    async def _get_positions_for_risk(self, provider: str = "polymarket") -> List[Dict[str, Any]]:
+        """Returns positions for risk checks."""
+        positions_info = await self.get_positions(provider)
+        positions = positions_info.get("positions", [])
+        return [
+            {
+                "size": pos.get("size", 0),
+                "current_price": pos.get("avg_price", 0)
+            }
+            for pos in positions
+        ]
+    
+    async def _get_price_for_risk(self, token_id: str, side: str) -> Optional[float]:
+        """Returns market price for price sanity checks."""
+        try:
+            provider_obj = self._get_provider()
+            if provider_obj is None:
+                return None
+            
+            order_book = await provider_obj.get_orderbook(token_id)
+            if order_book and order_book.bids and order_book.asks:
+                return (order_book.bids[0].price + order_book.asks[0].price) / 2
+            return None
+        except Exception:
+            return None
     
     async def get_wallet_balance(self, provider: str = "polymarket") -> Dict[str, Any]:
         """
@@ -27,25 +90,18 @@ class TradingTools:
             Dict with balance information
         """
         try:
-            if provider.lower() == "polymarket":
-                balance_info = await self.poly.get_balance()
-                return {
-                    "provider": "polymarket",
-                    "balance": float(balance_info.get("balance", 0)),
-                    "currency": "USDC",
-                    "allowance": float(balance_info.get("allowance", 0)),
-                    "error": balance_info.get("error")
-                }
-            elif provider.lower() == "kalshi" and self.kalshi:
-                # Kalshi balance check would go here
-                return {
-                    "provider": "kalshi",
-                    "balance": 0.0,
-                    "currency": "USD",
-                    "error": "Not implemented"
-                }
-            else:
+            provider_obj = self._get_provider(provider)
+            if provider_obj is None:
                 return {"error": "Invalid provider or provider not configured"}
+            
+            balance_info = await provider_obj.get_balance()
+            return {
+                "provider": provider.lower(),
+                "balance": float(balance_info.get("balance", 0)),
+                "currency": "USDC",
+                "allowance": float(balance_info.get("allowance", 0)),
+                "error": balance_info.get("error")
+            }
         except Exception as e:
             logger.error("Failed to get wallet balance", provider=provider, error=str(e))
             return {"error": str(e)}
@@ -54,7 +110,9 @@ class TradingTools:
         self,
         token_id: str,
         amount: float,
-        provider: str = "polymarket"
+        provider: str = "polymarket",
+        agent_id: Optional[str] = None,
+        agent_reasoning: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Place a market buy order.
@@ -63,38 +121,61 @@ class TradingTools:
             token_id: Token/market ID to buy
             amount: Dollar amount to spend
             provider: "polymarket" or "kalshi"
+            agent_id: Optional agent ID for tracking
+            agent_reasoning: Optional agent reasoning for tracking
             
         Returns:
             Dict with order result
         """
         try:
-            if provider.lower() == "polymarket":
-                # Check balance first
-                balance_info = await self.poly.get_balance()
-                balance = float(balance_info.get("balance", 0))
-                
-                if amount > balance:
-                    return {
-                        "success": False,
-                        "error": f"Insufficient balance. Have: ${balance:.2f}, Need: ${amount:.2f}"
-                    }
-                
-                order = await self.poly.place_market_order(
-                    token_id=token_id,
-                    side=Side.BUY,
-                    amount=amount
-                )
-                
-                return {
-                    "success": True,
-                    "order_id": order.id,
-                    "token_id": token_id,
-                    "side": "BUY",
-                    "amount": amount,
-                    "status": order.status.value
-                }
-            else:
+            if provider.lower() == "kalshi":
                 return {"success": False, "error": "Only Polymarket supported currently"}
+            
+            provider_obj = self._get_provider(provider)
+            
+            # Run risk check first
+            risk_guard = self._get_risk_guard()
+            risk_result = await risk_guard.check_trade(
+                token_id=token_id,
+                side="BUY",
+                amount=amount,
+                provider=provider,
+                agent_id=agent_id,
+                agent_reasoning=agent_reasoning
+            )
+            
+            if not risk_result.approved:
+                return {
+                    "success": False,
+                    "error": "Trade blocked by risk guard",
+                    "violations": [v.message for v in risk_result.violations],
+                    "risk_score": risk_result.risk_score
+                }
+            
+            # Check balance first (secondary safeguard)
+            balance_info = await provider_obj.get_balance()
+            balance = float(balance_info.get("balance", 0))
+            
+            if amount > balance:
+                return {
+                    "success": False,
+                    "error": f"Insufficient balance. Have: ${balance:.2f}, Need: ${amount:.2f}"
+                }
+            
+            order = await provider_obj.place_market_order(
+                token_id=token_id,
+                side=Side.BUY,
+                amount=amount
+            )
+            
+            return {
+                "success": True,
+                "order_id": order.id,
+                "token_id": token_id,
+                "side": "BUY",
+                "amount": amount,
+                "status": order.status.value
+            }
         except Exception as e:
             logger.error("Market buy failed", token_id=token_id, amount=amount, error=str(e))
             return {"success": False, "error": str(e)}
@@ -103,7 +184,9 @@ class TradingTools:
         self,
         token_id: str,
         shares: float,
-        provider: str = "polymarket"
+        provider: str = "polymarket",
+        agent_id: Optional[str] = None,
+        agent_reasoning: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Place a market sell order.
@@ -112,28 +195,51 @@ class TradingTools:
             token_id: Token/market ID to sell
             shares: Number of shares to sell
             provider: "polymarket" or "kalshi"
+            agent_id: Optional agent ID for tracking
+            agent_reasoning: Optional agent reasoning for tracking
             
         Returns:
             Dict with order result
         """
         try:
-            if provider.lower() == "polymarket":
-                order = await self.poly.place_market_order(
-                    token_id=token_id,
-                    side=Side.SELL,
-                    amount=shares
-                )
-                
-                return {
-                    "success": True,
-                    "order_id": order.id,
-                    "token_id": token_id,
-                    "side": "SELL",
-                    "shares": shares,
-                    "status": order.status.value
-                }
-            else:
+            if provider.lower() == "kalshi":
                 return {"success": False, "error": "Only Polymarket supported currently"}
+            
+            provider_obj = self._get_provider(provider)
+            
+            # Run risk check first
+            risk_guard = self._get_risk_guard()
+            risk_result = await risk_guard.check_trade(
+                token_id=token_id,
+                side="SELL",
+                amount=shares,
+                provider=provider,
+                agent_id=agent_id,
+                agent_reasoning=agent_reasoning
+            )
+            
+            if not risk_result.approved:
+                return {
+                    "success": False,
+                    "error": "Trade blocked by risk guard",
+                    "violations": [v.message for v in risk_result.violations],
+                    "risk_score": risk_result.risk_score
+                }
+            
+            order = await provider_obj.place_market_order(
+                token_id=token_id,
+                side=Side.SELL,
+                amount=shares
+            )
+            
+            return {
+                "success": True,
+                "order_id": order.id,
+                "token_id": token_id,
+                "side": "SELL",
+                "shares": shares,
+                "status": order.status.value
+            }
         except Exception as e:
             logger.error("Market sell failed", token_id=token_id, shares=shares, error=str(e))
             return {"success": False, "error": str(e)}
@@ -156,29 +262,30 @@ class TradingTools:
             Dict with trade history
         """
         try:
-            if provider.lower() == "polymarket":
-                trades = await self.poly.get_trades(market_id=market_id)
-                
-                trade_list = []
-                for trade in trades[:limit]:
-                    trade_list.append({
-                        "id": trade.id,
-                        "market_id": trade.market_id,
-                        "side": trade.side.value,
-                        "price": trade.price,
-                        "size": trade.size,
-                        "total": trade.price * trade.size,
-                        "timestamp": trade.timestamp
-                    })
-                
-                return {
-                    "success": True,
-                    "provider": "polymarket",
-                    "count": len(trade_list),
-                    "trades": trade_list
-                }
-            else:
+            if provider.lower() == "kalshi":
                 return {"success": False, "error": "Only Polymarket supported currently"}
+            
+            provider_obj = self._get_provider(provider)
+            trades = await provider_obj.get_trades(market_id=market_id)
+            
+            trade_list = []
+            for trade in trades[:limit]:
+                trade_list.append({
+                    "id": trade.id,
+                    "market_id": trade.market_id,
+                    "side": trade.side.value,
+                    "price": trade.price,
+                    "size": trade.size,
+                    "total": trade.price * trade.size,
+                    "timestamp": trade.timestamp
+                })
+            
+            return {
+                "success": True,
+                "provider": provider.lower(),
+                "count": len(trade_list),
+                "trades": trade_list
+            }
         except Exception as e:
             logger.error("Failed to get trade history", provider=provider, error=str(e))
             return {"success": False, "error": str(e)}
@@ -194,27 +301,7 @@ class TradingTools:
             Dict with positions
         """
         try:
-            if provider.lower() == "polymarket":
-                positions = await self.poly.get_positions()
-                
-                position_list = []
-                for pos in positions:
-                    position_list.append({
-                        "market_id": pos.market_id,
-                        "outcome": pos.outcome,
-                        "size": pos.size,
-                        "avg_price": pos.avg_price,
-                        "realized_pnl": pos.realized_pnl,
-                        "unrealized_pnl": pos.unrealized_pnl
-                    })
-                
-                return {
-                    "success": True,
-                    "provider": "polymarket",
-                    "count": len(position_list),
-                    "positions": position_list
-                }
-            elif provider.lower() == "kalshi" and self.kalshi:
+            if provider.lower() == "kalshi" and self.kalshi:
                 positions = await self.kalshi.get_positions()
                 position_list = [
                     {
@@ -233,8 +320,27 @@ class TradingTools:
                     "count": len(position_list),
                     "positions": position_list
                 }
-            else:
-                return {"success": False, "error": "Invalid provider"}
+            
+            provider_obj = self._get_provider(provider)
+            positions = await provider_obj.get_positions()
+            
+            position_list = []
+            for pos in positions:
+                position_list.append({
+                    "market_id": pos.market_id,
+                    "outcome": pos.outcome,
+                    "size": pos.size,
+                    "avg_price": pos.avg_price,
+                    "realized_pnl": pos.realized_pnl,
+                    "unrealized_pnl": pos.unrealized_pnl
+                })
+            
+            return {
+                "success": True,
+                "provider": provider.lower(),
+                "count": len(position_list),
+                "positions": position_list
+            }
         except Exception as e:
             logger.error("Failed to get positions", provider=provider, error=str(e))
             return {"success": False, "error": str(e)}

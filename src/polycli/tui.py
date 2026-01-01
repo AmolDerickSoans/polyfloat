@@ -20,6 +20,7 @@ from textual import work, on
 from textual.screen import ModalScreen
 import asyncio
 import json
+from decimal import Decimal
 from typing import List, Optional, Dict, Any, Set
 import plotext as plt
 from polycli.providers.polymarket import PolyProvider
@@ -56,7 +57,11 @@ from polycli.news.api_client import NewsAPIClient
 from polycli.news.news_widget import NewsPanel
 from polycli.news.alerts import NewsAlertManager, AlertConfig, DEFAULT_TERMINAL_CONFIG
 from polycli.tui_news_feed import FullScreenNewsFeed
+from polycli.utils.config import get_paper_mode
+from polycli.emergency import EmergencyStopController, StopReason
 import structlog
+from polycli.analytics.widget import PerformanceDashboardWidget
+from polycli.analytics.calculator import PerformanceCalculator
 
 logger = structlog.get_logger()
 
@@ -127,6 +132,35 @@ class NewsTicker(Static):
 
 
 
+class PaperModeIndicator(Static):
+    """Visual indicator for paper trading mode"""
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._update_display()
+    
+    def _update_display(self) -> None:
+        if get_paper_mode():
+            self.update(
+                Panel(
+                    "[bold yellow]PAPER TRADING MODE[/bold yellow]\n[dim]No real money at risk[/dim]",
+                    border_style="yellow",
+                    padding=(0, 2)
+                )
+            )
+        else:
+            self.update("")
+    
+    def render(self) -> RenderableType:
+        if get_paper_mode():
+            return Panel(
+                "[bold yellow]PAPER TRADING MODE[/bold yellow]\n[dim]No real money at risk[/dim]",
+                border_style="yellow",
+                padding=(0, 2)
+            )
+        return ""
+
+
 class WalletStatus(Static):
     """Display wallet balance and trading status"""
     
@@ -137,11 +171,18 @@ class WalletStatus(Static):
         self.poly_provider = poly_provider
     
     def render(self) -> RenderableType:
+        is_paper = get_paper_mode()
         table = Table(show_header=False, expand=True, box=None, padding=(0, 1))
         table.add_column("Label", style="dim", width=12)
         table.add_column("Value", style="bold white")
-        table.add_row("USDC Balance", self.balance)
-        return Panel(table, title="Wallet", border_style="green", height=4)
+        
+        balance_label = "Balance (Paper)" if is_paper else "USDC Balance"
+        table.add_row(balance_label, self.balance)
+        
+        title = "Paper Wallet" if is_paper else "Wallet"
+        border_style = "yellow" if is_paper else "green"
+        
+        return Panel(table, title=title, border_style=border_style, height=4)
     
     def on_mount(self) -> None:
         """Start balance refresh loop"""
@@ -962,7 +1003,7 @@ class DashboardApp(App):
         ("s", "sell", "Sell"),
         ("w", "toggle_watchlist", "Watchlist"),
         ("/", "focus_search", "Search"),
-        ("a", "show_arb", "Arbitrage"),
+        Binding("a", "show_analytics", "Analytics"),
         ("d", "show_dash", "Dashboard"),
         ("p", "show_portfolio", "Portfolio"),
         ("h", "show_history", "Trade History"),
@@ -970,13 +1011,26 @@ class DashboardApp(App):
         ("m", "cycle_agent_mode", "Agent Mode"),
         ("escape", "escape", "Back/Cancel"),
         ("enter", "enter", "Send Command"),
+        Binding("ctrl+x", "emergency_stop", "EMERGENCY STOP", priority=True),
     ]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.redis_store = RedisStore(prefix="polycli:")
         self.sqlite_store = SQLiteStore(":memory:")
-        self.poly = PolyProvider()
+        
+        # Initialize providers
+        real_poly = PolyProvider()
+        if get_paper_mode():
+            from polycli.paper.provider import PaperTradingProvider
+            self.poly = PaperTradingProvider(real_poly)
+            # Ensure paper provider is initialized (sync wrapper or await later)
+            # Since __init__ is sync, we can't await. 
+            # PaperTradingProvider initializes lazily or via explicit init. 
+            # We'll let it init lazily or in on_mount.
+        else:
+            self.poly = real_poly
+            
         self.kalshi = KalshiProvider()
         
         # News clients (polyfloat-news integration) - initialized first for agent access
@@ -1005,6 +1059,11 @@ class DashboardApp(App):
         self.ws_client = PolymarketWebSocket()
         self.kalshi_ws = KalshiWebSocket()
         self.auto_loop_task = None
+
+        self._emergency_controller = EmergencyStopController(
+            cancel_orders_fn=self._cancel_all_orders,
+            close_websockets_fn=self._close_all_websockets
+        )
 
     def action_cycle_agent_mode(self) -> None:
         modes = ["manual", "auto-approval", "full-auto"]
@@ -1139,9 +1198,39 @@ class DashboardApp(App):
             except Exception as e:
                 await asyncio.sleep(60)
 
+    async def _get_balance(self, provider: str) -> Dict[str, Any]:
+        """Get balance for provider."""
+        if provider == "kalshi":
+            return await self.kalshi.get_balance()
+        return await self.poly.get_balance()
+
+    async def _get_positions(self, provider: str) -> List[Dict[str, Any]]:
+        """Get positions for provider."""
+        prov = self.kalshi if provider == "kalshi" else self.poly
+        positions = await prov.get_positions()
+        # Convert Pydantic models to dicts
+        return [p.model_dump() for p in positions]
+
+    async def _get_price(self, market_id: str) -> Decimal:
+        """Get current price for market."""
+        # Simple implementation - in real app would cache/optimize
+        return Decimal("0.50")
+
     def compose(self) -> ComposeResult:
         yield Header()
+        
+        if get_paper_mode():
+            yield PaperModeIndicator(id="paper_mode_indicator")
+        
         yield NewsTicker(id="news_ticker")
+        
+        # Initialize calculator with callbacks
+        self.calculator = PerformanceCalculator(
+            get_balance_fn=self._get_balance,
+            get_positions_fn=self._get_positions,
+            get_price_fn=self._get_price
+        )
+
         with Horizontal():
             # Left column (30%) - Controls & Agents
             with Vertical(id="left_column", classes="left-panel"):
@@ -1174,11 +1263,14 @@ class DashboardApp(App):
 
             # Right column (70%) - Data & Details
             with Vertical(id="right_column", classes="right-panel"):
-                yield Label("Market Focus", classes="section_title")
-                yield MarketDetail(id="market_focus", classes="market-detail")
-
-                # News Panel (30% of right column)
-                yield NewsPanel(id="news_panel", classes="news-panel")
+                with ContentSwitcher(id="switcher", initial="dashboard"):
+                    with Vertical(id="dashboard"):
+                        yield Label("Market Focus", classes="section_title")
+                        yield MarketDetail(id="market_focus", classes="market-detail")
+                        # News Panel (30% of right column)
+                        yield NewsPanel(id="news_panel", classes="news-panel")
+                    yield PerformanceDashboardWidget(calculator=self.calculator, id="analytics")
+                    yield PortfolioView(id="portfolio")
 
         yield Footer()
 
@@ -1267,6 +1359,13 @@ class DashboardApp(App):
 
     def action_show_dash(self) -> None:
         self.query_one("#switcher").current = "dashboard"
+
+    async def action_show_analytics(self) -> None:
+        self.query_one("#switcher").current = "analytics"
+        try:
+            await self.query_one("#analytics", PerformanceDashboardWidget).refresh_data()
+        except Exception:
+            pass
 
     def action_show_arb(self) -> None:
         self.notify("Arbitrage Scanner coming soon")
@@ -1362,11 +1461,63 @@ class DashboardApp(App):
                 logger.error("Order placement failed", error=str(e))
                 self.notify(f"Order Fail: {str(e)[:50]}", severity="error")
 
+    async def action_emergency_stop(self) -> None:
+        confirmed = await self.push_screen(EmergencyStopConfirmScreen(), wait_for_dismiss=True)
+
+        if confirmed:
+            event = await self._emergency_controller.trigger_stop(reason=StopReason.USER_INITIATED, description="User triggered emergency stop via TUI")
+
+            self.notify(f"EMERGENCY STOP ACTIVATED\nOrders cancelled: {event.orders_cancelled}\nWebSockets closed: {event.websockets_closed}", severity="error")
+
+    async def _cancel_all_orders(self) -> int:
+        from polycli.emergency.order_canceller import OrderCanceller
+        canceller = OrderCanceller(self.poly, self.kalshi)
+        return await canceller.cancel_all_orders()
+
+    async def _close_all_websockets(self) -> int:
+        closed = 0
+        if hasattr(self, '_poly_ws') and self._poly_ws is not None:
+            await self._poly_ws.close()
+            closed += 1
+        if hasattr(self, '_kalshi_ws') and self._kalshi_ws is not None:
+            await self._kalshi_ws.close()
+            closed += 1
+        return closed
+
     @on(DataTable.RowSelected, "#market_list")
     def select_market(self, event: DataTable.RowSelected) -> None:
         m = self.markets_cache.get(event.row_key)
         if m:
             self.query_one("#market_focus", MarketDetail).market = m
+
+
+class EmergencyStopConfirmScreen(ModalScreen):
+    BINDINGS = [
+        ("y", "confirm", "Yes, STOP"),
+        ("n", "cancel", "No, Cancel"),
+        ("escape", "cancel", "Cancel"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Container(id="emergency_stop_dialog"):
+            yield Static("[bold red]EMERGENCY STOP[/]", id="title")
+            yield Static(
+                "This will:\n"
+                "- Halt all agent activity\n"
+                "- Cancel all pending orders\n"
+                "- Close all WebSocket connections\n\n"
+                "Are you sure?",
+                id="message"
+            )
+            with Horizontal():
+                yield Button("Yes, STOP [Y]", variant="error", id="confirm")
+                yield Button("Cancel [N]", variant="primary", id="cancel")
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
 
 
 if __name__ == "__main__":

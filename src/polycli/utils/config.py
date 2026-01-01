@@ -13,6 +13,12 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
     with open(config_path, "r") as f:
         return yaml.safe_load(f) or {}
 
+def save_config(config: Dict[str, Any], config_path: Path = DEFAULT_CONFIG_PATH) -> None:
+    """Save configuration to YAML file"""
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w") as f:
+        yaml.safe_dump(config, f)
+
 def get_config_value(key: str, default: Any = None) -> Any:
     """Get a configuration value with environment variable override"""
     config = load_config()
@@ -31,3 +37,13 @@ def get_config_value(key: str, default: Any = None) -> Any:
         else:
             return default
     return val
+
+def get_paper_mode() -> bool:
+    """Check if paper trading mode is enabled"""
+    return get_config_value("paper_mode", False)
+
+def set_paper_mode(enabled: bool) -> None:
+    """Toggle paper trading mode"""
+    config = load_config()
+    config["paper_mode"] = enabled
+    save_config(config)

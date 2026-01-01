@@ -33,11 +33,13 @@ class NewsPanel(Vertical):
 
         # Category filter buttons
         with Horizontal(id="news_filters", classes="news-filters"):
-            yield Button("All", id="cat_all", variant="primary", classes="cat-btn active")
-            yield Button("🏛️", id="cat_politics", classes="cat-btn")
-            yield Button("₿", id="cat_crypto", classes="cat-btn")
-            yield Button("📈", id="cat_economics", classes="cat-btn")
-            yield Button("🏀", id="cat_sports", classes="cat-btn")
+            yield Button(
+                "All", id="cat_all", variant="primary", classes="cat-btn active"
+            )
+            yield Button("Gov", id="cat_politics", classes="cat-btn")
+            yield Button("Crypto", id="cat_crypto", classes="cat-btn")
+            yield Button("Econ", id="cat_economics", classes="cat-btn")
+            yield Button("Sports", id="cat_sports", classes="cat-btn")
 
         # News items display
         yield Static(id="news_items_display", classes="news-display")
@@ -45,7 +47,7 @@ class NewsPanel(Vertical):
         # Footer with filter info and stats
         with Horizontal(id="news_footer", classes="news-footer"):
             yield Static(id="filter_indicator", classes="filter-info")
-            yield Button("↻", id="refresh_news", classes="refresh-btn")
+            yield Button("Refresh", id="refresh_news", classes="refresh-btn")
 
     def on_mount(self):
         """Initialize widget on mount"""
@@ -220,7 +222,13 @@ class NewsPanel(Vertical):
 
     def _update_button_states(self, active_id: str):
         """Update category button visual states"""
-        for btn_id in ["cat_all", "cat_politics", "cat_crypto", "cat_economics", "cat_sports"]:
+        for btn_id in [
+            "cat_all",
+            "cat_politics",
+            "cat_crypto",
+            "cat_economics",
+            "cat_sports",
+        ]:
             try:
                 btn = self.query_one(f"#{btn_id}", Button)
                 if btn_id == active_id:
@@ -239,15 +247,34 @@ class NewsPanel(Vertical):
         filters = {}
 
         # Extract entities from market question
-        crypto_tickers = ["BTC", "ETH", "SOL", "ADA", "DOGE", "MATIC", "AVAX", "XRP", "BNB"]
+        crypto_tickers = [
+            "BTC",
+            "ETH",
+            "SOL",
+            "ADA",
+            "DOGE",
+            "MATIC",
+            "AVAX",
+            "XRP",
+            "BNB",
+        ]
         for ticker in crypto_tickers:
             if ticker.upper() in question.upper():
                 filters["ticker"] = ticker
                 break
 
         people_names = [
-            "Trump", "Biden", "Harris", "Obama", "Powell", "Yellen",
-            "Musk", "Vitalik", "Buterin", "Zuckerberg", "Altman"
+            "Trump",
+            "Biden",
+            "Harris",
+            "Obama",
+            "Powell",
+            "Yellen",
+            "Musk",
+            "Vitalik",
+            "Buterin",
+            "Zuckerberg",
+            "Altman",
         ]
         for person in people_names:
             if person.lower() in question.lower():
@@ -274,4 +301,5 @@ class NewsPanel(Vertical):
 # Keep old class for backwards compatibility
 class NewsWidget(NewsPanel):
     """Alias for backwards compatibility"""
+
     pass
