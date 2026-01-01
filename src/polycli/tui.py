@@ -1,4 +1,5 @@
-from textual.app import App, ComposeResult, Binding
+from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.widgets import (
     Header,
     Footer,
@@ -17,7 +18,7 @@ load_dotenv(override=True)
 from textual.containers import Container, Horizontal, Vertical, Grid
 from textual.reactive import reactive
 from textual import work, on
-from textual.screen import ModalScreen
+from textual.screen import ModalScreen, Screen
 import asyncio
 import json
 from decimal import Decimal
@@ -887,7 +888,7 @@ class PortfolioView(Container):
             self.app.notify(f"Load error: {e}", severity="error")
 
 
-class TradeHistoryView(Container):
+class TradeHistoryView(Screen):
     """Trade history and order tracking"""
     
     def compose(self) -> ComposeResult:

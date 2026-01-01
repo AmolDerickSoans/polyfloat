@@ -1,6 +1,7 @@
 import typer
 import os
 import sys
+import asyncio
 from pathlib import Path
 from typing import Optional
 from decimal import Decimal
@@ -17,7 +18,7 @@ load_dotenv(override=True)
 
 app = typer.Typer(
     help="PolyCLI: Agentic Terminal for Prediction Markets",
-    no_args_is_help=False,  # We will handle no-args manually
+    no_args_is_help=False,
     add_completion=False,
 )
 markets_app = typer.Typer(help="Market data commands")
@@ -30,6 +31,15 @@ risk_app = typer.Typer(help="Risk management commands")
 app.add_typer(risk_app, name="risk")
 
 console = Console()
+
+
+def setup_update_commands():
+    from polycli.update import update_app
+
+    app.add_typer(update_app, name="update")
+
+
+setup_update_commands()
 
 
 def print_header():
@@ -69,7 +79,7 @@ def ensure_credentials():
     file_vars = dotenv_values(env_file)
 
     def is_configured(key, skip_key):
-        # We trust the .env file primarily. 
+        # We trust the .env file primarily.
         # We only trust the shell's skip flag if there's no .env yet or it's implicitly skipped.
         # But if the .env exists and is empty (after logout), we should probably re-ask.
         in_file = file_vars.get(key)
@@ -78,14 +88,16 @@ def ensure_credentials():
         if in_file or skip_in_file:
             return True
         # If it's not in the file, we only allow shell skip if the file doesn't have it either.
-        # Actually, let's keep it simple: if NOT in file and NOT skipped in file, 
+        # Actually, let's keep it simple: if NOT in file and NOT skipped in file,
         # but is in shell environment, we will offer to adopt it later in the function.
         # So here we return False to ensure it's added to 'missing'.
         return False
 
     missing = []
     # Check for both private key AND funder address for Polymarket
-    if not is_configured("POLY_PRIVATE_KEY", "SKIP_POLY") or not is_configured("POLY_FUNDER_ADDRESS", "SKIP_POLY"):
+    if not is_configured("POLY_PRIVATE_KEY", "SKIP_POLY") or not is_configured(
+        "POLY_FUNDER_ADDRESS", "SKIP_POLY"
+    ):
         missing.append("Polymarket Credentials")
 
     if not is_configured("GOOGLE_API_KEY", "SKIP_GEMINI"):
@@ -94,10 +106,15 @@ def ensure_credentials():
     # Kalshi check
     # We are configured if we have a full pair (Email+Pass OR ID+Path/Key) OR if we skipped
     has_kalshi_file = (
-        (file_vars.get("KALSHI_EMAIL") and file_vars.get("KALSHI_PASSWORD")) or
-        (file_vars.get("KALSHI_KEY_ID") and (file_vars.get("KALSHI_PRIVATE_KEY_PATH") or file_vars.get("KALSHI_PRIVATE_KEY")))
+        file_vars.get("KALSHI_EMAIL") and file_vars.get("KALSHI_PASSWORD")
+    ) or (
+        file_vars.get("KALSHI_KEY_ID")
+        and (
+            file_vars.get("KALSHI_PRIVATE_KEY_PATH")
+            or file_vars.get("KALSHI_PRIVATE_KEY")
+        )
     )
-    
+
     # If .env is missing any piece of a pair AND we haven't skipped via .env, it's missing
     if not has_kalshi_file and file_vars.get("SKIP_KALSHI") != "true":
         missing.append("Kalshi Credentials")
@@ -150,26 +167,34 @@ def ensure_credentials():
                             console.print(
                                 "[yellow]Warning: Poly key usually starts with 0x[/yellow]"
                             )
-                        
+
                         # Also collect funder address
-                        console.print("\n[dim]Your funder address is the wallet address that holds your USDC.[/dim]")
-                        funder = Prompt.ask("Enter your Polymarket Funder Address (wallet address)")
-                        
+                        console.print(
+                            "\n[dim]Your funder address is the wallet address that holds your USDC.[/dim]"
+                        )
+                        funder = Prompt.ask(
+                            "Enter your Polymarket Funder Address (wallet address)"
+                        )
+
                         if funder:
                             if not funder.startswith("0x"):
                                 console.print(
                                     "[yellow]Warning: Address usually starts with 0x[/yellow]"
                                 )
-                            
+
                             set_key(env_file, "POLY_PRIVATE_KEY", key)
                             set_key(env_file, "POLY_FUNDER_ADDRESS", funder)
                             set_key(env_file, "SKIP_POLY", "false")
                             load_dotenv(env_file, override=True)
                             os.environ["POLY_PRIVATE_KEY"] = key
                             os.environ["POLY_FUNDER_ADDRESS"] = funder
-                            console.print("[green]✓ Polymarket credentials saved[/green]")
+                            console.print(
+                                "[green]✓ Polymarket credentials saved[/green]"
+                            )
                         else:
-                            console.print("[yellow]Funder address required for wallet balance. Setup incomplete.[/yellow]")
+                            console.print(
+                                "[yellow]Funder address required for wallet balance. Setup incomplete.[/yellow]"
+                            )
                 else:
                     set_key(env_file, "SKIP_POLY", "true")
                     load_dotenv(env_file, override=True)
@@ -230,7 +255,7 @@ def ensure_credentials():
             s_key_id = os.environ.get("KALSHI_KEY_ID")
             s_key_path = os.environ.get("KALSHI_PRIVATE_KEY_PATH")
             s_key_content = os.environ.get("KALSHI_PRIVATE_KEY")
-            
+
             use_shell = False
 
             if s_email or s_pass or s_key_id or s_key_path or s_key_content:
@@ -245,27 +270,41 @@ def ensure_credentials():
                     )
                     == "y"
                 ):
-                    if s_email: set_key(env_file, "KALSHI_EMAIL", s_email)
-                    if s_pass: set_key(env_file, "KALSHI_PASSWORD", s_pass)
-                    if s_key_id: set_key(env_file, "KALSHI_KEY_ID", s_key_id)
-                    if s_key_path: set_key(env_file, "KALSHI_PRIVATE_KEY_PATH", s_key_path)
-                    if s_key_content: set_key(env_file, "KALSHI_PRIVATE_KEY", s_key_content)
-                    
+                    if s_email:
+                        set_key(env_file, "KALSHI_EMAIL", s_email)
+                    if s_pass:
+                        set_key(env_file, "KALSHI_PASSWORD", s_pass)
+                    if s_key_id:
+                        set_key(env_file, "KALSHI_KEY_ID", s_key_id)
+                    if s_key_path:
+                        set_key(env_file, "KALSHI_PRIVATE_KEY_PATH", s_key_path)
+                    if s_key_content:
+                        set_key(env_file, "KALSHI_PRIVATE_KEY", s_key_content)
+
                     # Re-check if we have a complete set now
                     load_dotenv(env_file, override=True)
                     f_vars = dotenv_values(env_file)
                     has_complete = (
-                        (f_vars.get("KALSHI_EMAIL") and f_vars.get("KALSHI_PASSWORD")) or
-                        (f_vars.get("KALSHI_KEY_ID") and (f_vars.get("KALSHI_PRIVATE_KEY_PATH") or f_vars.get("KALSHI_PRIVATE_KEY")))
+                        f_vars.get("KALSHI_EMAIL") and f_vars.get("KALSHI_PASSWORD")
+                    ) or (
+                        f_vars.get("KALSHI_KEY_ID")
+                        and (
+                            f_vars.get("KALSHI_PRIVATE_KEY_PATH")
+                            or f_vars.get("KALSHI_PRIVATE_KEY")
+                        )
                     )
-                    
+
                     if has_complete:
                         set_key(env_file, "SKIP_KALSHI", "false")
                         load_dotenv(env_file, override=True)
-                        console.print("[green]✓ Credentials imported from shell[/green]")
+                        console.print(
+                            "[green]✓ Credentials imported from shell[/green]"
+                        )
                         use_shell = True
                     else:
-                        console.print("[yellow]Partial credentials imported. Completing setup...[/yellow]")
+                        console.print(
+                            "[yellow]Partial credentials imported. Completing setup...[/yellow]"
+                        )
 
             if not use_shell:
                 console.print("\n[bold cyan]Kalshi Integration[/bold cyan]")
@@ -314,28 +353,34 @@ def ensure_credentials():
 
             # Verification Step
             if not use_shell and os.environ.get("SKIP_KALSHI") != "true":
-                 console.print("\n[dim]Verifying Kalshi credentials...[/dim]")
-                 try:
-                     from polycli.providers.kalshi import KalshiProvider
-                     import asyncio
-                     
-                     # Force reload of env vars in provider if needed, though usually it reads os.environ
-                     prov = KalshiProvider()
-                     if not prov.api_instance:
-                          console.print("[bold red] Authentication Failed: Unable to initialize API client. Check your keys/password.[/bold red]")
-                          # We don't block exit, but user knows.
-                     else:
-                      # Run check
-                      is_valid = asyncio.run(prov.check_connection())
-                      if is_valid:
-                          console.print("[bold green]✓ Verified: Connected to Kalshi[/bold green]")
-                      else:
-                          console.print("[bold red]⚠ Warning: API Client initialized but check_connection failed.[/bold red]")
-                      
-                      # Cleanup
-                      # prov.close() - Removed to avoid shutting down shared pool
-                 except Exception as e:
-                     console.print(f"[red]Verification Error: {e}[/red]")
+                console.print("\n[dim]Verifying Kalshi credentials...[/dim]")
+                try:
+                    from polycli.providers.kalshi import KalshiProvider
+                    import asyncio
+
+                    # Force reload of env vars in provider if needed, though usually it reads os.environ
+                    prov = KalshiProvider()
+                    if not prov.api_instance:
+                        console.print(
+                            "[bold red] Authentication Failed: Unable to initialize API client. Check your keys/password.[/bold red]"
+                        )
+                        # We don't block exit, but user knows.
+                    else:
+                        # Run check
+                        is_valid = asyncio.run(prov.check_connection())
+                        if is_valid:
+                            console.print(
+                                "[bold green]✓ Verified: Connected to Kalshi[/bold green]"
+                            )
+                        else:
+                            console.print(
+                                "[bold red]⚠ Warning: API Client initialized but check_connection failed.[/bold red]"
+                            )
+
+                        # Cleanup
+                        # prov.close() - Removed to avoid shutting down shared pool
+                except Exception as e:
+                    console.print(f"[red]Verification Error: {e}[/red]")
 
         console.print()
 
@@ -395,7 +440,7 @@ def interactive_menu():
                 os.environ.pop("KALSHI_KEY_ID", None)
                 os.environ.pop("KALSHI_PRIVATE_KEY_PATH", None)
                 os.environ.pop("KALSHI_PRIVATE_KEY", None)
-                
+
                 # Also clear skip flags to ensure re-prompt on next run
                 os.environ.pop("SKIP_POLY", None)
                 os.environ.pop("SKIP_GEMINI", None)
@@ -417,13 +462,14 @@ def interactive_menu():
 def setup_wizard():
     """Run interactive setup wizard."""
     from polycli.setup import SetupWizard
-    
+
     wizard = SetupWizard()
     result = wizard.run()
-    
+
     if result == "launch_dashboard":
         # Launch dashboard after setup
         from polycli.tui import DashboardApp
+
         app = DashboardApp()
         app.run()
 
@@ -431,43 +477,77 @@ def setup_wizard():
 @app.callback(invoke_without_command=True)
 def main_callback(
     ctx: typer.Context,
-    poly_key: Optional[str] = typer.Option(None, "--poly-key", help="Polymarket Private Key"),
-    gemini_key: Optional[str] = typer.Option(None, "--gemini-key", help="Gemini API Key"),
-    kalshi_email: Optional[str] = typer.Option(None, "--kalshi-email", help="Kalshi Email"),
-    kalshi_pass: Optional[str] = typer.Option(None, "--kalshi-pass", help="Kalshi Password"),
-    kalshi_key_id: Optional[str] = typer.Option(None, "--kalshi-key-id", help="Kalshi Key ID"),
-    kalshi_pem: Optional[str] = typer.Option(None, "--kalshi-pem", help="Kalshi Private Key Path"),
-    paper: bool = typer.Option(False, "--paper", "-p", help="Enable paper trading mode"),
+    poly_key: Optional[str] = typer.Option(
+        None, "--poly-key", help="Polymarket Private Key"
+    ),
+    gemini_key: Optional[str] = typer.Option(
+        None, "--gemini-key", help="Gemini API Key"
+    ),
+    kalshi_email: Optional[str] = typer.Option(
+        None, "--kalshi-email", help="Kalshi Email"
+    ),
+    kalshi_pass: Optional[str] = typer.Option(
+        None, "--kalshi-pass", help="Kalshi Password"
+    ),
+    kalshi_key_id: Optional[str] = typer.Option(
+        None, "--kalshi-key-id", help="Kalshi Key ID"
+    ),
+    kalshi_pem: Optional[str] = typer.Option(
+        None, "--kalshi-pem", help="Kalshi Private Key Path"
+    ),
+    paper: bool = typer.Option(
+        False, "--paper", "-p", help="Enable paper trading mode"
+    ),
     save: bool = typer.Option(False, "--save", help="Persist credentials to .env"),
+    check_updates: bool = typer.Option(
+        False, "--check-updates", help="Check for updates"
+    ),
+    update: bool = typer.Option(False, "--update", help="Update to latest version"),
 ):
     """
     PolyCLI Entry Point (v1.0)
     """
     # Inject Flags into Env (Ephemeral Mode)
-    if poly_key: os.environ["POLY_PRIVATE_KEY"] = poly_key
-    if gemini_key: os.environ["GOOGLE_API_KEY"] = gemini_key
-    if kalshi_email: os.environ["KALSHI_EMAIL"] = kalshi_email
-    if kalshi_pass: os.environ["KALSHI_PASSWORD"] = kalshi_pass
-    if kalshi_key_id: os.environ["KALSHI_KEY_ID"] = kalshi_key_id
-    if kalshi_pem: os.environ["KALSHI_PRIVATE_KEY_PATH"] = kalshi_pem
+    if poly_key:
+        os.environ["POLY_PRIVATE_KEY"] = poly_key
+    if gemini_key:
+        os.environ["GOOGLE_API_KEY"] = gemini_key
+    if kalshi_email:
+        os.environ["KALSHI_EMAIL"] = kalshi_email
+    if kalshi_pass:
+        os.environ["KALSHI_PASSWORD"] = kalshi_pass
+    if kalshi_key_id:
+        os.environ["KALSHI_KEY_ID"] = kalshi_key_id
+    if kalshi_pem:
+        os.environ["KALSHI_PRIVATE_KEY_PATH"] = kalshi_pem
 
     if save:
         env_file = ".env"
         if not os.path.exists(env_file):
-            with open(env_file, "w") as f: pass
-            
-        if poly_key: set_key(env_file, "POLY_PRIVATE_KEY", poly_key)
-        if gemini_key: set_key(env_file, "GOOGLE_API_KEY", gemini_key)
-        if kalshi_email: set_key(env_file, "KALSHI_EMAIL", kalshi_email)
-        if kalshi_pass: set_key(env_file, "KALSHI_PASSWORD", kalshi_pass)
-        if kalshi_key_id: set_key(env_file, "KALSHI_KEY_ID", kalshi_key_id)
-        if kalshi_pem: set_key(env_file, "KALSHI_PRIVATE_KEY_PATH", kalshi_pem)
-        
+            with open(env_file, "w") as f:
+                pass
+
+        if poly_key:
+            set_key(env_file, "POLY_PRIVATE_KEY", poly_key)
+        if gemini_key:
+            set_key(env_file, "GOOGLE_API_KEY", gemini_key)
+        if kalshi_email:
+            set_key(env_file, "KALSHI_EMAIL", kalshi_email)
+        if kalshi_pass:
+            set_key(env_file, "KALSHI_PASSWORD", kalshi_pass)
+        if kalshi_key_id:
+            set_key(env_file, "KALSHI_KEY_ID", kalshi_key_id)
+        if kalshi_pem:
+            set_key(env_file, "KALSHI_PRIVATE_KEY_PATH", kalshi_pem)
+
         # Also mark them as NOT skipped so ensure_credentials doesn't complain
-        if poly_key: set_key(env_file, "SKIP_POLY", "false")
-        if gemini_key: set_key(env_file, "SKIP_GEMINI", "false")
-        if kalshi_email or kalshi_key_id: set_key(env_file, "SKIP_KALSHI", "false")
-        
+        if poly_key:
+            set_key(env_file, "SKIP_POLY", "false")
+        if gemini_key:
+            set_key(env_file, "SKIP_GEMINI", "false")
+        if kalshi_email or kalshi_key_id:
+            set_key(env_file, "SKIP_KALSHI", "false")
+
         load_dotenv(env_file, override=True)
 
     # Handle paper mode
@@ -485,22 +565,65 @@ def main_callback(
                     border_style="yellow",
                 )
             )
-        
+
         # Check for first run and auto-trigger setup wizard
         config_path = Path.home() / ".polycli" / "config.yaml"
         if not config_path.exists() and ctx.invoked_subcommand != "setup":
-            console.print("[yellow]First run detected - launching setup wizard...[/yellow]")
+            console.print(
+                "[yellow]First run detected - launching setup wizard...[/yellow]"
+            )
             wizard = SetupWizard()
             result = wizard.run()
-            
+
             if result == "launch_dashboard":
                 # Launch dashboard after setup
                 from polycli.tui import DashboardApp
+
                 dashboard_app = DashboardApp()
                 dashboard_app.run()
             return
-        
+
         ensure_credentials()
+
+        if "--help" not in sys.argv:
+            from polycli.utils.update_checker import UpdateChecker
+
+            checker = UpdateChecker()
+            info = asyncio.run(checker.check_update())
+            if info:
+                from polycli.utils.update_checker import format_update_notification
+
+                console.print(format_update_notification(info))
+
+        if check_updates:
+            from polycli.utils.update_checker import UpdateChecker
+
+            checker = UpdateChecker()
+            info = asyncio.run(checker.check_update(force=True))
+            if info:
+                from polycli.utils.update_checker import format_update_notification
+
+                console.print(format_update_notification(info))
+            else:
+                console.print(
+                    "[bold green]You are running the latest version[/bold green]"
+                )
+            sys.exit(0)
+
+        if update:
+            from polycli.utils.update_checker import UpdateChecker
+
+            checker = UpdateChecker()
+            result = asyncio.run(checker.perform_update(mode="auto"))
+            if result.success:
+                from polycli.utils.update_checker import format_update_success
+
+                console.print(format_update_success(result))
+            else:
+                from polycli.utils.update_checker import format_update_failure
+
+                console.print(format_update_failure(result))
+            sys.exit(0)
 
     if ctx.invoked_subcommand is None:
         interactive_menu()
@@ -555,7 +678,7 @@ def search_markets(
     console.print(
         f"Searching for '[bold yellow]{query}[/bold yellow]' on [bold green]{provider}[/bold green]..."
     )
-    
+
     if provider.lower() == "polymarket":
         poly = PolyProvider()
         try:
@@ -563,22 +686,22 @@ def search_markets(
             if not results:
                 console.print("[red]No results found.[/red]")
                 return
-            
+
             table = Table(title=f"Search Results: {query}")
             table.add_column("TID", style="dim")
             table.add_column("Market", style="cyan")
             table.add_column("Price", justify="right")
             table.add_column("Volume", justify="right")
-            
+
             for m in results:
                 display_title = m.title[:60] + ("..." if len(m.title) > 60 else "")
                 table.add_row(
                     m.token_id[:8],
                     display_title,
                     f"${m.price:.2f}",
-                    f"${m.volume_24h/1000:.1f}k"
+                    f"${m.volume_24h/1000:.1f}k",
                 )
-            
+
             console.print(table)
         except Exception as e:
             console.print(f"[red]Search Error: {e}[/red]")
@@ -592,18 +715,18 @@ app.add_typer(arb_app, name="arb")
 def paper_status():
     """Show paper trading balance and P&L"""
     console.print("[bold cyan]Paper Trading Account Status[/bold cyan]")
-    
+
     try:
         from polycli.paper.provider import PaperTradingProvider
-        
+
         provider = PaperTradingProvider(PolyProvider())
         balance = asyncio.run(provider.get_balance())
         positions = asyncio.run(provider.get_positions())
-        
+
         console.print()
         console.print(f"[bold]Balance:[/bold] ${balance['balance']:.2f}")
         console.print(f"[bold]Positions:[/bold] {len(positions)}")
-        
+
         if positions:
             console.print()
             table = Table(title="Open Positions")
@@ -611,15 +734,15 @@ def paper_status():
             table.add_column("Side", style="magenta")
             table.add_column("Size", justify="right")
             table.add_column("Avg Price", justify="right")
-            
+
             for pos in positions:
                 table.add_row(
                     pos.get("market_id", "N/A"),
                     pos.get("outcome", "N/A"),
                     f"{pos.get('size', 0):.2f}",
-                    f"${pos.get('avg_price', 0):.2f}"
+                    f"${pos.get('avg_price', 0):.2f}",
                 )
-            
+
             console.print(table)
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -630,11 +753,13 @@ def paper_reset(
     balance: float = typer.Option(10000.0, "--balance", "-b", help="Starting balance")
 ):
     """Reset paper trading account"""
-    console.print(f"[bold yellow]Resetting paper account to ${balance:.2f}[/bold yellow]")
-    
+    console.print(
+        f"[bold yellow]Resetting paper account to ${balance:.2f}[/bold yellow]"
+    )
+
     try:
         from polycli.paper.provider import PaperTradingProvider
-        
+
         provider = PaperTradingProvider(PolyProvider())
         asyncio.run(provider.reset(balance))
         console.print("[bold green]✓ Account reset successfully[/bold green]")
@@ -648,17 +773,17 @@ def paper_history(
 ):
     """Show paper trading trade history"""
     console.print(f"[bold cyan]Paper Trading History (Last {limit} trades)[/bold cyan]")
-    
+
     try:
         from polycli.paper.provider import PaperTradingProvider
-        
+
         provider = PaperTradingProvider(PolyProvider())
         trades = asyncio.run(provider.get_trades(limit=limit))
-        
+
         if not trades:
             console.print("[yellow]No trades found[/yellow]")
             return
-        
+
         table = Table(title="Trade History")
         table.add_column("Time", style="dim")
         table.add_column("Market", style="cyan")
@@ -667,7 +792,7 @@ def paper_history(
         table.add_column("Price", justify="right")
         table.add_column("Fee", justify="right")
         table.add_column("Total", justify="right")
-        
+
         for trade in trades:
             table.add_row(
                 trade.get("executed_at", "N/A"),
@@ -676,9 +801,9 @@ def paper_history(
                 f"{trade.get('size', 0):.2f}",
                 f"${trade.get('price', 0):.2f}",
                 f"${trade.get('fee', 0):.2f}",
-                f"${trade.get('total', 0):.2f}"
+                f"${trade.get('total', 0):.2f}",
             )
-        
+
         console.print(table)
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -697,17 +822,35 @@ def risk_status():
         config = RiskConfig.load()
 
         console.print("[bold]Configuration:[/bold]")
-        console.print(f"  Max Position Size: [cyan]${config.max_position_size_usd:.2f}[/cyan]")
-        console.print(f"  Daily Loss Limit: [cyan]${config.daily_loss_limit_usd:.2f}[/cyan]")
-        console.print(f"  Trading Enabled: [green]Yes[/green]" if config.trading_enabled else "  Trading Enabled: [red]No[/red]")
+        console.print(
+            f"  Max Position Size: [cyan]${config.max_position_size_usd:.2f}[/cyan]"
+        )
+        console.print(
+            f"  Daily Loss Limit: [cyan]${config.daily_loss_limit_usd:.2f}[/cyan]"
+        )
+        console.print(
+            f"  Trading Enabled: [green]Yes[/green]"
+            if config.trading_enabled
+            else "  Trading Enabled: [red]No[/red]"
+        )
         console.print()
 
         status = guard.get_status()
         console.print("[bold]Current Status:[/bold]")
-        console.print(f"  Circuit Breaker: [red]TRIGGERED[/red]" if status.get("circuit_breaker_active", False) else "  Circuit Breaker: [green]OK[/green]")
-        console.print(f"  Today's Loss: [cyan]${status.get('daily_loss_usd', 0):.2f}[/cyan]")
-        console.print(f"  Open Positions: [cyan]{status.get('position_count', 0)}[/cyan]")
-        console.print(f"  Total Exposure: [cyan]${status.get('total_exposure_usd', 0):.2f}[/cyan]")
+        console.print(
+            f"  Circuit Breaker: [red]TRIGGERED[/red]"
+            if status.get("circuit_breaker_active", False)
+            else "  Circuit Breaker: [green]OK[/green]"
+        )
+        console.print(
+            f"  Today's Loss: [cyan]${status.get('daily_loss_usd', 0):.2f}[/cyan]"
+        )
+        console.print(
+            f"  Open Positions: [cyan]{status.get('position_count', 0)}[/cyan]"
+        )
+        console.print(
+            f"  Total Exposure: [cyan]${status.get('total_exposure_usd', 0):.2f}[/cyan]"
+        )
     except Exception as e:
         console.print(f"[red]Error fetching risk status: {e}[/red]")
 
@@ -715,7 +858,9 @@ def risk_status():
 @risk_app.command("config")
 def risk_config(
     max_position: Optional[float] = typer.Option(None, help="Max position size in USD"),
-    daily_loss_limit: Optional[float] = typer.Option(None, help="Max daily loss in USD"),
+    daily_loss_limit: Optional[float] = typer.Option(
+        None, help="Max daily loss in USD"
+    ),
     trading_enabled: Optional[bool] = typer.Option(None, help="Enable/disable trading"),
 ):
     """Configure risk parameters."""
@@ -969,63 +1114,70 @@ def deploy_bot(
 analytics_app = typer.Typer(help="Trading analytics commands")
 app.add_typer(analytics_app, name="analytics")
 
+
 @analytics_app.command("summary")
 def analytics_summary(
     days: int = typer.Option(30, help="Number of days to analyze"),
-    provider: str = typer.Option("polymarket", help="Provider to analyze")
+    provider: str = typer.Option("polymarket", help="Provider to analyze"),
 ):
     """Show performance summary."""
     import asyncio
     from polycli.analytics import PerformanceCalculator
-    
+
     async def run():
         calc = PerformanceCalculator()
         metrics = await calc.calculate_metrics(provider, days)
-        
+
         console.print(f"\n[bold]Performance Summary ({days} days)[/bold]")
         console.print(f"Total P&L: ${metrics.total_pnl:+.2f}")
         console.print(f"Win Rate: {metrics.win_rate:.1%}")
         console.print(f"Total Trades: {metrics.total_trades}")
         console.print(f"Profit Factor: {metrics.profit_factor:.2f}")
         console.print(f"Max Drawdown: {metrics.max_drawdown_pct:.1%}")
-    
+
     asyncio.run(run())
+
 
 @analytics_app.command("export")
 def analytics_export(
     output: Path = typer.Option(Path("trades.csv"), help="Output file"),
-    days: int = typer.Option(30, help="Days to export")
+    days: int = typer.Option(30, help="Days to export"),
 ):
     """Export trade history to CSV."""
     from polycli.analytics import AnalyticsStore
     import csv
-    
+
     store = AnalyticsStore()
     from datetime import datetime, timedelta
+
     trades = store.get_trades(start_date=datetime.utcnow() - timedelta(days=days))
-    
+
     with open(output, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Date", "Market", "Side", "Size", "Price", "Total", "Fee", "P&L"])
+        writer.writerow(
+            ["Date", "Market", "Side", "Size", "Price", "Total", "Fee", "P&L"]
+        )
         for t in trades:
-            writer.writerow([
-                t.timestamp.isoformat(),
-                t.market_name,
-                t.side,
-                t.size,
-                t.price,
-                t.total,
-                t.fee,
-                t.pnl or ""
-            ])
-    
+            writer.writerow(
+                [
+                    t.timestamp.isoformat(),
+                    t.market_name,
+                    t.side,
+                    t.size,
+                    t.price,
+                    t.total,
+                    t.fee,
+                    t.pnl or "",
+                ]
+            )
+
     console.print(f"[green]Exported {len(trades)} trades to {output}[/green]")
 
 
 @app.command("stop")
 def emergency_stop(
     cancel_orders: bool = typer.Option(True, help="Cancel all pending orders"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation")
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
 ):
     """
     Trigger emergency stop - halt all agents and optionally cancel orders
@@ -1035,15 +1187,13 @@ def emergency_stop(
 
     if not force:
         confirm = typer.confirm(
-            "This will halt all agents and cancel pending orders. Continue?",
-            abort=True
+            "This will halt all agents and cancel pending orders. Continue?", abort=True
         )
 
     async def do_stop():
         controller = EmergencyStopController()
         event = await controller.trigger_stop(
-            reason=StopReason.USER_INITIATED,
-            cancel_orders=cancel_orders
+            reason=StopReason.USER_INITIATED, cancel_orders=cancel_orders
         )
         return event
 
