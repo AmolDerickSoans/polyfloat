@@ -1,0 +1,8 @@
+{
+  "track_id": "cli_flags_search_fix_20251225",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2025-12-25T00:00:00Z",
+  "updated_at": "2025-12-25T00:00:00Z",
+  "description": "bug fix : needs a thorough deep reseaerch and RCA  , the search for polymarket and kalshi is broken in the tui.py , also i want a way to feed in keys (poly market , gemini, kalshi apikey , pem path directly from poly with flags rather than go through questionnaire ( dont remove this behaviour just add flag method)."
+}

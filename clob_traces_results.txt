@@ -1,0 +1,500 @@
+
+================================================================================
+CLOB ENDPOINT TEST SUITE
+================================================================================
+
+[2025-12-29 13:51:33] [START] Starting comprehensive test of Polymarket CLOB endpoints
+
+================================================================================
+FETCHING TOKEN IDs FROM GAMMA API
+================================================================================
+
+[2025-12-29 13:51:33] [TOKEN_DISCOVERY] Found token_id: 531350724629078801914001407064... (market: Will Joe Biden get Coronavirus before th)
+[2025-12-29 13:51:33] [TOKEN_DISCOVERY] Found token_id: 608698714693763215749046673287... (market: Will Joe Biden get Coronavirus before th)
+[2025-12-29 13:51:33] [TOKEN_DISCOVERY] Found token_id: 239578856151154309223841856612... (market: Will Airbnb begin publicly trading befor)
+[2025-12-29 13:51:33] [TOKEN_DISCOVERY] Found token_id: 440659171691388154510320589265... (market: Will Airbnb begin publicly trading befor)
+[2025-12-29 13:51:33] [TOKEN_DISCOVERY] Found token_id: 719297353092590301528700481322... (market: Will a new Supreme Court Justice be conf)
+[2025-12-29 13:51:33] [TOKEN_DISCOVERY] Found token_id: 168473157044612932311390785246... (market: Will a new Supreme Court Justice be conf)
+[2025-12-29 13:51:33] [TOKEN_DISCOVERY] Found token_id: 448546879784327080536190768858... (market: Will Kim Kardashian and Kanye West divor)
+[2025-12-29 13:51:33] [TOKEN_DISCOVERY] Found token_id: 996209352960344505261388336121... (market: Will Kim Kardashian and Kanye West divor)
+[2025-12-29 13:51:33] [TOKEN_DISCOVERY] Found token_id: 362723741995362299664450596440... (market: Will Coinbase begin publicly trading bef)
+[2025-12-29 13:51:33] [TOKEN_DISCOVERY] Found token_id: 295515077321794600875055472060... (market: Will Coinbase begin publicly trading bef)
+[2025-12-29 13:51:33] [TOKEN_DISCOVERY] Total token IDs found: 10
+
+================================================================================
+PART 1: /data/trades ENDPOINT (Requires L2 Auth)
+================================================================================
+
+
+================================================================================
+TEST: 1. /data/trades - No Parameters
+================================================================================
+
+[2025-12-29 13:51:33] [1. /data/trades - No Parameters] URL: https://clob.polymarket.com/data/trades
+[2025-12-29 13:51:33] [1. /data/trades - No Parameters] Request Params: None
+[2025-12-29 13:51:33] [1. /data/trades - No Parameters] Request Headers: None
+[2025-12-29 13:51:33] [1. /data/trades - No Parameters] Status Code: 401
+[2025-12-29 13:51:33] [1. /data/trades - No Parameters] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:33 GMT",
+  "content-type": "application/json",
+  "content-length": "41",
+  "connection": "keep-alive",
+  "cf-ray": "9b57e2741c334805-BOM",
+  "vary": "Origin",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=bGnl0MG7qiV0VPQU37F3CZHo1mzWBX_ZmNOnaRJGCtM-1766996493-1.0.1.1-BuoJIXqLV6zrFRHT6rdy16wZ.UwxzImR3CSlqDqSPTnt7vc0IxGikKKYudqRJIeXaCvsHjr1OjPsChh4AVobst9vUurBjCfcCnJBK4sWPzY; path=/; expires=Mon, 29-Dec-25 08:51:33 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:33] [1. /data/trades - No Parameters] Response Body:
+{"error":"Unauthorized/Invalid api key"}
+
+[2025-12-29 13:51:33] [1. /data/trades - No Parameters] Trades Data Present: False
+
+================================================================================
+TEST: 2. /data/trades - With token_id parameter
+================================================================================
+
+[2025-12-29 13:51:33] [2. /data/trades - With token_id parameter] URL: https://clob.polymarket.com/data/trades
+[2025-12-29 13:51:33] [2. /data/trades - With token_id parameter] Request Params: {
+  "token_id": "53135072462907880191400140706440867753044989936304433583131786753949599718775"
+}
+[2025-12-29 13:51:33] [2. /data/trades - With token_id parameter] Request Headers: None
+[2025-12-29 13:51:33] [2. /data/trades - With token_id parameter] Status Code: 401
+[2025-12-29 13:51:33] [2. /data/trades - With token_id parameter] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:33 GMT",
+  "content-type": "application/json",
+  "content-length": "41",
+  "connection": "keep-alive",
+  "cf-ray": "9b57e2757bd0f01d-BOM",
+  "vary": "Origin",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=KcTIdSU09bpw60Q7plMZRv6MapuWsKoQK7aWDpdwM60-1766996493-1.0.1.1-2x_fY9wkXmlpH1Xis.Clrix4hUe0uOkS8AuGulJqvTdp1QXQzRV7MkRTMAO.FJLqacC4lAHrzmVHBaypMUnKPdvlzVmf0G0YLtXnFia_ayY; path=/; expires=Mon, 29-Dec-25 08:51:33 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:33] [2. /data/trades - With token_id parameter] Response Body:
+{"error":"Unauthorized/Invalid api key"}
+
+[2025-12-29 13:51:33] [2. /data/trades - With token_id parameter] Trades Data Present: False
+
+================================================================================
+TEST: 3. /data/trades - With asset_id parameter
+================================================================================
+
+[2025-12-29 13:51:33] [3. /data/trades - With asset_id parameter] URL: https://clob.polymarket.com/data/trades
+[2025-12-29 13:51:33] [3. /data/trades - With asset_id parameter] Request Params: {
+  "asset_id": "53135072462907880191400140706440867753044989936304433583131786753949599718775"
+}
+[2025-12-29 13:51:33] [3. /data/trades - With asset_id parameter] Request Headers: None
+[2025-12-29 13:51:34] [3. /data/trades - With asset_id parameter] Status Code: 401
+[2025-12-29 13:51:34] [3. /data/trades - With asset_id parameter] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:34 GMT",
+  "content-type": "application/json",
+  "content-length": "41",
+  "connection": "keep-alive",
+  "cf-ray": "9b57e2770e0c4455-BOM",
+  "vary": "Origin",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=swG9QjCjH10HYvtqkGafzyiPesOY7PWtzCjlCxa9pEg-1766996494-1.0.1.1-zxcuwJVSzwJWM6b_Vu11v_P11oTPzp5vwtFGFvKpJnr2_QD_1lXeaK9nokFw14GtT9c98DpnRvHnsix7LDWxSqToUjh.KhODEDFLaEhH6s0; path=/; expires=Mon, 29-Dec-25 08:51:34 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:34] [3. /data/trades - With asset_id parameter] Response Body:
+{"error":"Unauthorized/Invalid api key"}
+
+[2025-12-29 13:51:34] [3. /data/trades - With asset_id parameter] Trades Data Present: False
+
+================================================================================
+TEST: 4. /data/trades - Multiple token IDs
+================================================================================
+
+[2025-12-29 13:51:34] [4. /data/trades - Multiple token IDs] URL: https://clob.polymarket.com/data/trades
+[2025-12-29 13:51:34] [4. /data/trades - Multiple token IDs] Request Params: {
+  "token_id": "53135072462907880191400140706440867753044989936304433583131786753949599718775,60869871469376321574904667328762911501870754872924453995477779862968218702336"
+}
+[2025-12-29 13:51:34] [4. /data/trades - Multiple token IDs] Request Headers: None
+[2025-12-29 13:51:34] [4. /data/trades - Multiple token IDs] Status Code: 401
+[2025-12-29 13:51:34] [4. /data/trades - Multiple token IDs] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:34 GMT",
+  "content-type": "application/json",
+  "content-length": "41",
+  "connection": "keep-alive",
+  "cf-ray": "9b57e2789dfd4025-BOM",
+  "vary": "Origin",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=xQd43KUpIknsZAi8gzCVB87lJ9xrSFUFJ_zo5t1jlSY-1766996494-1.0.1.1-89ZgeY_g_QtuBH2yqNkTasP96Nfx_4Q7pbnuInygZbLiOi4ZJDGkiKUVc2FZS_4goF8VheIXFsbSZAgFs6DFTOTO2U4F3HSXbcCMR2Rg4dI; path=/; expires=Mon, 29-Dec-25 08:51:34 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:34] [4. /data/trades - Multiple token IDs] Response Body:
+{"error":"Unauthorized/Invalid api key"}
+
+[2025-12-29 13:51:34] [4. /data/trades - Multiple token IDs] Trades Data Present: False
+
+================================================================================
+TEST: 5. /data/trades - Different token ID
+================================================================================
+
+[2025-12-29 13:51:34] [5. /data/trades - Different token ID] URL: https://clob.polymarket.com/data/trades
+[2025-12-29 13:51:34] [5. /data/trades - Different token ID] Request Params: {
+  "token_id": "60869871469376321574904667328762911501870754872924453995477779862968218702336"
+}
+[2025-12-29 13:51:34] [5. /data/trades - Different token ID] Request Headers: None
+[2025-12-29 13:51:34] [5. /data/trades - Different token ID] Status Code: 401
+[2025-12-29 13:51:34] [5. /data/trades - Different token ID] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:34 GMT",
+  "content-type": "application/json",
+  "content-length": "41",
+  "connection": "keep-alive",
+  "cf-ray": "9b57e27a0e5ddb81-BOM",
+  "vary": "Origin",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=AbOGmDsTR_vmBw8vO7nXG3rtAsFFcI1eHcxfc8xkSmg-1766996494-1.0.1.1-id.hKd43JWfdxFQc.Pji.Tdr__kIYG4YIkJaawhiHo3FpKuryqZ8z7OU9FaxuK3AcBZFPoiedKSH2WdFiKobTjLru5AGizy4T4PNVVLGJ3A; path=/; expires=Mon, 29-Dec-25 08:51:34 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:34] [5. /data/trades - Different token ID] Response Body:
+{"error":"Unauthorized/Invalid api key"}
+
+[2025-12-29 13:51:34] [5. /data/trades - Different token ID] Trades Data Present: False
+
+================================================================================
+TEST: 6. /data/trades - With empty auth headers
+================================================================================
+
+[2025-12-29 13:51:34] [6. /data/trades - With empty auth headers] URL: https://clob.polymarket.com/data/trades
+[2025-12-29 13:51:34] [6. /data/trades - With empty auth headers] Request Params: None
+[2025-12-29 13:51:34] [6. /data/trades - With empty auth headers] Request Headers: {
+  "Authorization": "",
+  "Content-Type": "application/json"
+}
+[2025-12-29 13:51:34] [6. /data/trades - With empty auth headers] Status Code: 401
+[2025-12-29 13:51:34] [6. /data/trades - With empty auth headers] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:34 GMT",
+  "content-type": "application/json",
+  "content-length": "41",
+  "connection": "keep-alive",
+  "cf-ray": "9b57e27ba9f04075-BOM",
+  "vary": "Origin",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=Bqk7uyEF7VxolocwVMQqGnXV._hb.QN_mIrki66uCqs-1766996494-1.0.1.1-Jq9Smtrf7nS.RpTm9UEv1yuCvUfoiF0CwZWr5.XLQsS_HEP4Px8Vwv4cW7ODbkg2Dw68H_3qdWXrbzQrLsqZfm99AmIJVCq_OfhfQNWCrXs; path=/; expires=Mon, 29-Dec-25 08:51:34 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:34] [6. /data/trades - With empty auth headers] Response Body:
+{"error":"Unauthorized/Invalid api key"}
+
+[2025-12-29 13:51:34] [6. /data/trades - With empty auth headers] Trades Data Present: False
+
+================================================================================
+TEST: 7. /data/trades - token_id + auth headers
+================================================================================
+
+[2025-12-29 13:51:34] [7. /data/trades - token_id + auth headers] URL: https://clob.polymarket.com/data/trades
+[2025-12-29 13:51:34] [7. /data/trades - token_id + auth headers] Request Params: {
+  "token_id": "53135072462907880191400140706440867753044989936304433583131786753949599718775"
+}
+[2025-12-29 13:51:34] [7. /data/trades - token_id + auth headers] Request Headers: {
+  "Authorization": "",
+  "Content-Type": "application/json"
+}
+[2025-12-29 13:51:35] [7. /data/trades - token_id + auth headers] Status Code: 401
+[2025-12-29 13:51:35] [7. /data/trades - token_id + auth headers] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:35 GMT",
+  "content-type": "application/json",
+  "content-length": "41",
+  "connection": "keep-alive",
+  "cf-ray": "9b57e27d198a6ecb-BOM",
+  "vary": "Origin",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=yEGiCly_qVjD9qrjA4rn7FPfxLLjXFdXNVU7MXsda8Y-1766996495-1.0.1.1-TWZSZ2UfS0tOruq29jl_PBBlkxL1R0RqLwhAsXC_BtZ17wFspQQy0SiCmbCMmTCI1plpHT658SBTYsUh_PyIzfLrRpHyKbSdh3v98b2tOA4; path=/; expires=Mon, 29-Dec-25 08:51:35 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:35] [7. /data/trades - token_id + auth headers] Response Body:
+{"error":"Unauthorized/Invalid api key"}
+
+[2025-12-29 13:51:35] [7. /data/trades - token_id + auth headers] Trades Data Present: False
+
+================================================================================
+TEST: 8. /data/trades - With market parameter
+================================================================================
+
+[2025-12-29 13:51:35] [8. /data/trades - With market parameter] URL: https://clob.polymarket.com/data/trades
+[2025-12-29 13:51:35] [8. /data/trades - With market parameter] Request Params: {
+  "market": "53135072462907880191400140706440867753044989936304433583131786753949599718775"
+}
+[2025-12-29 13:51:35] [8. /data/trades - With market parameter] Request Headers: None
+[2025-12-29 13:51:35] [8. /data/trades - With market parameter] Status Code: 401
+[2025-12-29 13:51:35] [8. /data/trades - With market parameter] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:35 GMT",
+  "content-type": "application/json",
+  "content-length": "41",
+  "connection": "keep-alive",
+  "cf-ray": "9b57e27e9ff83b0f-BOM",
+  "vary": "Origin",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=CSag_Ojj2fNz5eRNV1AGcDCn78C2P1Lx3cxvFl93VLk-1766996495-1.0.1.1-8WzDnZjYmGg.ohXIdwiD3AsXbmi9DcmMweRlVXSVuO8zEKEZuQg8VXEK6DA2T3AF4GtLarAYIidoUGTf_WvPtFJB4zi1EZ1LwUB7DUg4Z0Y; path=/; expires=Mon, 29-Dec-25 08:51:35 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:35] [8. /data/trades - With market parameter] Response Body:
+{"error":"Unauthorized/Invalid api key"}
+
+[2025-12-29 13:51:35] [8. /data/trades - With market parameter] Trades Data Present: False
+
+================================================================================
+TEST: 9. /data/trades - With limit parameter
+================================================================================
+
+[2025-12-29 13:51:35] [9. /data/trades - With limit parameter] URL: https://clob.polymarket.com/data/trades
+[2025-12-29 13:51:35] [9. /data/trades - With limit parameter] Request Params: {
+  "limit": "10"
+}
+[2025-12-29 13:51:35] [9. /data/trades - With limit parameter] Request Headers: None
+[2025-12-29 13:51:35] [9. /data/trades - With limit parameter] Status Code: 401
+[2025-12-29 13:51:35] [9. /data/trades - With limit parameter] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:35 GMT",
+  "content-type": "application/json",
+  "content-length": "41",
+  "connection": "keep-alive",
+  "cf-ray": "9b57e2802add31ab-BOM",
+  "vary": "Origin",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=P4h3rpfTL7k.yV4pTgCUU87XImtLpYl9fzTavQoJTQ8-1766996495-1.0.1.1-jTrKBB.G.YimqaQjiYDP9xY.d7vV3TQgHm.XgmOLa5TuFjOAHWeLjwTezMMTArFtQf2wsZdkaFDDPQnOs6HyFJOmrBdvrIz4jpzY1seNsoU; path=/; expires=Mon, 29-Dec-25 08:51:35 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:35] [9. /data/trades - With limit parameter] Response Body:
+{"error":"Unauthorized/Invalid api key"}
+
+[2025-12-29 13:51:35] [9. /data/trades - With limit parameter] Trades Data Present: False
+
+================================================================================
+TEST: 10. /data/trades - token_id + limit
+================================================================================
+
+[2025-12-29 13:51:35] [10. /data/trades - token_id + limit] URL: https://clob.polymarket.com/data/trades
+[2025-12-29 13:51:35] [10. /data/trades - token_id + limit] Request Params: {
+  "token_id": "53135072462907880191400140706440867753044989936304433583131786753949599718775",
+  "limit": "5"
+}
+[2025-12-29 13:51:35] [10. /data/trades - token_id + limit] Request Headers: None
+[2025-12-29 13:51:35] [10. /data/trades - token_id + limit] Status Code: 401
+[2025-12-29 13:51:35] [10. /data/trades - token_id + limit] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:35 GMT",
+  "content-type": "application/json",
+  "content-length": "41",
+  "connection": "keep-alive",
+  "cf-ray": "9b57e281ab2285a5-BOM",
+  "vary": "Origin",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=EqPOcAuwSV3XftlZ9GvLEGSnH6SKf85o4tJBe0So0aU-1766996495-1.0.1.1-cxxjTay.FWChkc1ZX7BymlIH1aYSA.dO1HFQPuwAw216ZD0KuBE2qD_ax5VEdhLxnn8zHJiT5Hchr59INfAyl85Anu3L3uqSCK0R5YpdMcw; path=/; expires=Mon, 29-Dec-25 08:51:35 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:35] [10. /data/trades - token_id + limit] Response Body:
+{"error":"Unauthorized/Invalid api key"}
+
+[2025-12-29 13:51:35] [10. /data/trades - token_id + limit] Trades Data Present: False
+
+================================================================================
+PART 2: /live-activity/events/ ENDPOINT (Public)
+================================================================================
+
+
+================================================================================
+TEST: 11. /live-activity/events/ - With token_id
+================================================================================
+
+[2025-12-29 13:51:35] [11. /live-activity/events/ - With token_id] URL: https://clob.polymarket.com/live-activity/events/53135072462907880191400140706440867753044989936304433583131786753949599718775
+[2025-12-29 13:51:35] [11. /live-activity/events/ - With token_id] Request Params: None
+[2025-12-29 13:51:35] [11. /live-activity/events/ - With token_id] Request Headers: None
+[2025-12-29 13:51:35] [11. /live-activity/events/ - With token_id] Status Code: 404
+[2025-12-29 13:51:35] [11. /live-activity/events/ - With token_id] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:35 GMT",
+  "content-type": "text/html",
+  "transfer-encoding": "chunked",
+  "connection": "keep-alive",
+  "content-encoding": "gzip",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=n9ZXcP1eeAVZKLXyyEvOLiAIa_HQQXAmpOKwqHWwufo-1766996495-1.0.1.1-b7Bj37ooxIqbsLewX4gbAzreuuRr3_SmUHVpFLZfKmbIKSdL7rzrpG45RFTQ.VFTilRNXr9qHXkEnkYTR5L2Z1B1XsTXtDypFojp2xbS3BQ; path=/; expires=Mon, 29-Dec-25 08:51:35 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "cf-ray": "9b57e2831c2d47e7-BOM",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:35] [11. /live-activity/events/ - With token_id] Response Body:
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+<center><h1>404 Not Found</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>
+
+[2025-12-29 13:51:35] [11. /live-activity/events/ - With token_id] Trades Data Present: False
+
+================================================================================
+TEST: 12. /live-activity/events/ - Different token_id
+================================================================================
+
+[2025-12-29 13:51:35] [12. /live-activity/events/ - Different token_id] URL: https://clob.polymarket.com/live-activity/events/60869871469376321574904667328762911501870754872924453995477779862968218702336
+[2025-12-29 13:51:35] [12. /live-activity/events/ - Different token_id] Request Params: None
+[2025-12-29 13:51:35] [12. /live-activity/events/ - Different token_id] Request Headers: None
+[2025-12-29 13:51:36] [12. /live-activity/events/ - Different token_id] Status Code: 404
+[2025-12-29 13:51:36] [12. /live-activity/events/ - Different token_id] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:36 GMT",
+  "content-type": "text/html",
+  "transfer-encoding": "chunked",
+  "connection": "keep-alive",
+  "content-encoding": "gzip",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=50yTzf61gINgUGYJYKzDbfD1fV5biRsm3o2b8LkpEag-1766996496-1.0.1.1-gQsHPrg83J4rmVjpbqWPcrhZMpJ3jWHp0hjBD9jFlmQLqwljjHFO5QU0bNNtBkiUzMTq3bMjm2CBJ8E5glRNfF8NNSPj.32EsEPm2fCEry4; path=/; expires=Mon, 29-Dec-25 08:51:36 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "cf-ray": "9b57e2847a013cb8-BOM",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:36] [12. /live-activity/events/ - Different token_id] Response Body:
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+<center><h1>404 Not Found</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>
+
+[2025-12-29 13:51:36] [12. /live-activity/events/ - Different token_id] Trades Data Present: False
+
+================================================================================
+TEST: 13. /live-activity/events/ - With condition_id (truncated)
+================================================================================
+
+[2025-12-29 13:51:36] [13. /live-activity/events/ - With condition_id (truncated)] URL: https://clob.polymarket.com/live-activity/events/5313507246290788019140014070644086775304
+[2025-12-29 13:51:36] [13. /live-activity/events/ - With condition_id (truncated)] Request Params: None
+[2025-12-29 13:51:36] [13. /live-activity/events/ - With condition_id (truncated)] Request Headers: None
+[2025-12-29 13:51:36] [13. /live-activity/events/ - With condition_id (truncated)] Status Code: 404
+[2025-12-29 13:51:36] [13. /live-activity/events/ - With condition_id (truncated)] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:36 GMT",
+  "content-type": "text/html",
+  "transfer-encoding": "chunked",
+  "connection": "keep-alive",
+  "content-encoding": "gzip",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=F0ej6tKUkYWZugHKOZgJLfWyqhoAb1pdhUO6EeXsJAc-1766996496-1.0.1.1-ulDdDjR0Dv_ocjWpcuB2xq6n2.gx7jMFlNNYu6oGdRraNUVv8qEYTVd51UVObjG61GyJOWnSuZRqiloH6.SSJ8vpaqORYOVSuRs4U5UMhvM; path=/; expires=Mon, 29-Dec-25 08:51:36 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "cf-ray": "9b57e285f96bf487-BOM",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:36] [13. /live-activity/events/ - With condition_id (truncated)] Response Body:
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+<center><h1>404 Not Found</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>
+
+[2025-12-29 13:51:36] [13. /live-activity/events/ - With condition_id (truncated)] Trades Data Present: False
+
+================================================================================
+PART 3: /data/trades WITH API CREDENTIALS
+================================================================================
+
+[2025-12-29 13:51:36] [AUTH_SETUP] Deriving API credentials from private key...
+[2025-12-29 13:51:37] [AUTH_SUCCESS] Created auth headers with 5 fields
+
+================================================================================
+TEST: 14. /data/trades - With API credentials
+================================================================================
+
+[2025-12-29 13:51:37] [14. /data/trades - With API credentials] URL: https://clob.polymarket.com/data/trades
+[2025-12-29 13:51:37] [14. /data/trades - With API credentials] Request Params: {
+  "token_id": "53135072462907880191400140706440867753044989936304433583131786753949599718775"
+}
+[2025-12-29 13:51:37] [14. /data/trades - With API credentials] Request Headers: {
+  "POLY_ADDRESS": "0x79Dbe8E2844Cff1D1d8C8ecd8B2e47522e0731AD",
+  "POLY_SIGNATURE": "I8RqgIhBQGKLbQNCj_COtSyDAOVHsKwZlFWrOOfByz0=",
+  "POLY_TIMESTAMP": "1766996497",
+  "POLY_API_KEY": "49c379d3-8f86-b415-9baa-fad9ee99c8d9",
+  "POLY_PASSPHRASE": "a19e7da3043a2eb982023735391ec9be9ab757cf56b673f78ef56cb3efc1e869"
+}
+[2025-12-29 13:51:37] [14. /data/trades - With API credentials] Status Code: 200
+[2025-12-29 13:51:37] [14. /data/trades - With API credentials] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:37 GMT",
+  "content-type": "application/json",
+  "transfer-encoding": "chunked",
+  "connection": "keep-alive",
+  "content-encoding": "gzip",
+  "vary": "Origin",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=PJ7.N95AOghffWpCksbNeZDDar2OrReR5nM9q3dGN9o-1766996497-1.0.1.1-QqkU0QZmX1Hs4VUeazxo_Vz68ZBuwDH5n7FqpEIgA_haqOSOxgGPOjeNFyU0mPiLBJxGeRyJsf5PCZrPkuXn5k2wmrOyTxKO203hkw.Nxbs; path=/; expires=Mon, 29-Dec-25 08:51:37 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "cf-ray": "9b57e28bff0f3e16-BOM",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:37] [14. /data/trades - With API credentials] Response Body:
+{"data":[],"next_cursor":"LTE=","limit":300,"count":0}
+
+[2025-12-29 13:51:37] [14. /data/trades - With API credentials] Response Format: Object with keys: ['data', 'next_cursor', 'limit', 'count']
+[2025-12-29 13:51:37] [14. /data/trades - With API credentials] Trades Data Present: True
+
+================================================================================
+TEST: 15. /data/trades - With market + API credentials
+================================================================================
+
+[2025-12-29 13:51:37] [15. /data/trades - With market + API credentials] URL: https://clob.polymarket.com/data/trades
+[2025-12-29 13:51:37] [15. /data/trades - With market + API credentials] Request Params: {
+  "market": "53135072462907880191400140706440867753044989936304433583131786753949599718775"
+}
+[2025-12-29 13:51:37] [15. /data/trades - With market + API credentials] Request Headers: {
+  "POLY_ADDRESS": "0x79Dbe8E2844Cff1D1d8C8ecd8B2e47522e0731AD",
+  "POLY_SIGNATURE": "I8RqgIhBQGKLbQNCj_COtSyDAOVHsKwZlFWrOOfByz0=",
+  "POLY_TIMESTAMP": "1766996497",
+  "POLY_API_KEY": "49c379d3-8f86-b415-9baa-fad9ee99c8d9",
+  "POLY_PASSPHRASE": "a19e7da3043a2eb982023735391ec9be9ab757cf56b673f78ef56cb3efc1e869"
+}
+[2025-12-29 13:51:37] [15. /data/trades - With market + API credentials] Status Code: 200
+[2025-12-29 13:51:37] [15. /data/trades - With market + API credentials] Response Headers: {
+  "date": "Mon, 29 Dec 2025 08:21:37 GMT",
+  "content-type": "application/json",
+  "transfer-encoding": "chunked",
+  "connection": "keep-alive",
+  "content-encoding": "gzip",
+  "vary": "Origin",
+  "cf-cache-status": "DYNAMIC",
+  "set-cookie": "__cf_bm=Arjp.9EfvxUw1d37YnVFABXJssIqgiRIf5OzJfFdcLw-1766996497-1.0.1.1-oNT9plL2NdaOsoviSFB6rJJtvHc67YqK.6jX8J6gWfQ.SR08R1XojtA7dbFX1tZF0YHuPP8PIKdKcQPVreUZUD5LN_e9iqApaDp0VZAsbbc; path=/; expires=Mon, 29-Dec-25 08:51:37 GMT; domain=.polymarket.com; HttpOnly; Secure; SameSite=None",
+  "strict-transport-security": "max-age=7776000; includeSubDomains",
+  "server": "cloudflare",
+  "cf-ray": "9b57e28d7aa31daf-BOM",
+  "alt-svc": "h3=\":443\"; ma=86400"
+}
+[2025-12-29 13:51:37] [15. /data/trades - With market + API credentials] Response Body:
+{"data":[],"next_cursor":"LTE=","limit":300,"count":0}
+
+[2025-12-29 13:51:37] [15. /data/trades - With market + API credentials] Response Format: Object with keys: ['data', 'next_cursor', 'limit', 'count']
+[2025-12-29 13:51:37] [15. /data/trades - With market + API credentials] Trades Data Present: True
+
+================================================================================
+TEST SUMMARY
+================================================================================
+
+[2025-12-29 13:51:37] [COMPLETE] All tests completed
+
+================================================================================
+SAVING RESULTS
+================================================================================

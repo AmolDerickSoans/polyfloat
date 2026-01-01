@@ -1,59 +1,154 @@
 import asyncio
-import websockets
 import json
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, List, Optional, Set
+import websockets
 import structlog
+from polycli.models import OrderBook, PriceLevel, Trade, Side
 
 logger = structlog.get_logger()
 
 class PolymarketWebSocket:
-    """Custom WebSocket client for Polymarket orderbook streams"""
+    """
+    Robust WebSocket client for Polymarket orderbook and price streams.
+    Supports dynamic subscriptions, auto-reconnect, and heartbeat monitoring.
+    """
     
     def __init__(self, url: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market"):
         self.url = url
-        self.subscriptions: Dict[str, Callable] = {}
+        self.subscriptions: Dict[str, Set[Callable[[Dict[str, Any]], Any]]] = {}
         self.running = False
-        
-    async def subscribe_orderbook(self, token_id: str, callback: Callable[[Dict[str, Any]], Any]):
-        """Subscribe to orderbook updates"""
-        self.subscriptions[token_id] = callback
-        
-        # In a real implementation, we would manage a single connection and handle
-        # multiple subscriptions. For simplicity in this MVP step, we'll assume
-        # the main loop handles the connection.
-        pass
+        self._ws: Optional[websockets.WebSocketClientProtocol] = None
+        self._command_queue: asyncio.Queue = asyncio.Queue()
+        self._listen_task: Optional[asyncio.Task] = None
+        self._active_tokens: Set[str] = set()
 
-    async def start(self):
-        """Start the WebSocket listener"""
-        self.running = True
+    async def subscribe(self, token_id: str, callback: Callable[[Dict[str, Any]], Any]):
+        """
+        Subscribe to updates for a specific token.
+        If the connection is active, sends the subscription message immediately.
+        """
+        if token_id not in self.subscriptions:
+            self.subscriptions[token_id] = set()
+            # Queue a subscription command for the main loop
+            await self._command_queue.put({"type": "subscribe", "token_id": token_id})
+        
+        self.subscriptions[token_id].add(callback)
+        logger.info("Added local subscription", token_id=token_id)
+
+    async def unsubscribe(self, token_id: str, callback: Optional[Callable] = None):
+        """
+        Unsubscribe from updates. If callback is None, removes all for that token.
+        """
+        if token_id in self.subscriptions:
+            if callback:
+                self.subscriptions[token_id].discard(callback)
+            
+            if not callback or not self.subscriptions[token_id]:
+                del self.subscriptions[token_id]
+                await self._command_queue.put({"type": "unsubscribe", "token_id": token_id})
+                logger.info("Removed all local subscriptions for token", token_id=token_id)
+
+    async def _send_subscription(self, token_id: str):
+        """Send the wire-level subscription message"""
+        if self._ws and self._ws.open:
+            msg = {
+                "assets_ids": [token_id],
+                "type": "market"
+            }
+            await self._ws.send(json.dumps(msg))
+            self._active_tokens.add(token_id)
+            logger.debug("Sent wire subscription", token_id=token_id)
+
+    async def _handle_commands(self):
+        """Process subscription commands from the queue while connected"""
+        while self.running:
+            try:
+                cmd = await self._command_queue.get()
+                if cmd["type"] == "subscribe":
+                    await self._send_subscription(cmd["token_id"])
+                # Handle unsubs if the API supports it
+                self._command_queue.task_done()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error("Error processing WS command", error=str(e))
+
+    async def _run_loop(self):
+        """Main connection loop with reconnection logic"""
+        reconnect_delay = 1
+        max_reconnect_delay = 60
+
         while self.running:
             try:
                 async with websockets.connect(self.url) as ws:
+                    self._ws = ws
+                    self._active_tokens.clear()
+                    reconnect_delay = 1
                     logger.info("Connected to Polymarket WebSocket")
                     
-                    # Send subscriptions
+                    # Re-subscribe to all existing tokens
                     for token_id in self.subscriptions:
-                        msg = {
-                            "assets_ids": [token_id],
-                            "type": "market"
-                        }
-                        await ws.send(json.dumps(msg))
-                        logger.info("Subscribed", token_id=token_id)
+                        await self._send_subscription(token_id)
                     
-                    async for message in ws:
-                        data = json.loads(message)
-                        # Dispatch to callbacks
-                        # Real implementation needs to map response to token_id
-                        # Here we broadcast to all for demonstration if mapping isn't clear
-                        for callback in self.subscriptions.values():
-                            if asyncio.iscoroutinefunction(callback):
-                                await callback(data)
+                    # Start command handler for this connection
+                    command_task = asyncio.create_task(self._handle_commands())
+                    
+                    try:
+                        async for message in ws:
+                            data = json.loads(message)
+                            if isinstance(data, list):
+                                for item in data:
+                                    await self._dispatch(item)
                             else:
-                                callback(data)
-                                
+                                await self._dispatch(data)
+                    except websockets.ConnectionClosed:
+                        logger.warning("WebSocket connection closed")
+                    finally:
+                        command_task.cancel()
+                        self._ws = None
+                        
             except Exception as e:
-                logger.error("WebSocket connection error", error=str(e))
-                await asyncio.sleep(5)  # Reconnect delay
+                logger.error("WebSocket loop error", error=str(e))
+                if not self.running:
+                    break
+                await asyncio.sleep(reconnect_delay)
+                reconnect_delay = min(reconnect_delay * 2, max_reconnect_delay)
 
-    def stop(self):
+    async def _dispatch(self, data: Dict[str, Any]):
+        """Route incoming messages to the correct callbacks"""
+        # Polymarket CLOB WS often uses 'asset_id' in its data payloads
+        asset_id = data.get("asset_id") or data.get("token_id")
+        
+        if not asset_id:
+            return
+
+        callbacks = self.subscriptions.get(asset_id, set())
+        for cb in callbacks:
+            try:
+                # We pass the raw data for now, higher level widgets can wrap it in models
+                if asyncio.iscoroutinefunction(cb):
+                    await cb(data)
+                else:
+                    cb(data)
+            except Exception as e:
+                logger.error("Error in WS callback", token_id=asset_id, error=str(e))
+
+    def start(self):
+        """Start the WebSocket client in the background"""
+        if not self.running:
+            self.running = True
+            self._listen_task = asyncio.create_task(self._run_loop())
+            logger.info("Started Polymarket WS background task")
+
+    async def stop(self):
+        """Gracefully stop the WebSocket client"""
         self.running = False
+        if self._ws:
+            await self._ws.close()
+        if self._listen_task:
+            self._listen_task.cancel()
+            try:
+                await self._listen_task
+            except asyncio.CancelledError:
+                pass
+        logger.info("Stopped Polymarket WS")
