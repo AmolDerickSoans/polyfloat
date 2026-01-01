@@ -48,7 +48,11 @@ class NewsItemCard(Static):
         # Source badge
         source = item.get("source", "rss")
         source_account = item.get("source_account", "Unknown")
-        source_badge = f"[blue]𝕏 {source_account}[/blue]" if source == "nitter" else f"[yellow]📰 RSS[/yellow]"
+        source_badge = (
+            f"[blue]𝕏 {source_account}[/blue]"
+            if source == "nitter"
+            else f"[yellow]📰 RSS[/yellow]"
+        )
 
         # Build content
         headline = item.get("title") or item.get("content", "")[:100]
@@ -114,32 +118,35 @@ class FullScreenNewsFeed(Screen):
     def compose(self) -> ComposeResult:
         yield Vertical(
             # Header
-            Static("[bold cyan]📰 NEWS FEED[/bold cyan]  [dim]Press ESC to close[/dim]", id="feed_header"),
-
+            Static(
+                "[bold cyan]📰 NEWS FEED[/bold cyan]  [dim]Press ESC to close[/dim]",
+                id="feed_header",
+            ),
             # Filter bar
             Horizontal(
                 Button("All", id="f_all", variant="primary", classes="filter-btn"),
-                Button("🏛️ Politics", id="f_politics", classes="filter-btn"),
-                Button("₿ Crypto", id="f_crypto", classes="filter-btn"),
-                Button("📈 Economics", id="f_economics", classes="filter-btn"),
-                Button("🏀 Sports", id="f_sports", classes="filter-btn"),
+                Button("Gov", id="f_politics", classes="filter-btn"),
+                Button("Crypto", id="f_crypto", classes="filter-btn"),
+                Button("Econ", id="f_economics", classes="filter-btn"),
+                Button("Sports", id="f_sports", classes="filter-btn"),
                 Static("  ", classes="spacer"),
-                Input(placeholder="Search news...", id="news_search", classes="search-input"),
-                Button("↻", id="refresh_feed", classes="refresh-btn"),
+                Input(
+                    placeholder="Search news...",
+                    id="news_search",
+                    classes="search-input",
+                ),
+                Button("Refresh", id="refresh_feed", classes="refresh-btn"),
                 id="filter_bar",
                 classes="filter-bar",
             ),
-
             # Status bar
             Static(id="status_bar", classes="status-bar"),
-
             # News items container
             ScrollableContainer(
                 Static(id="news_container"),
                 id="news_scroll",
                 classes="news-scroll",
             ),
-
             # Pagination
             Horizontal(
                 Button("← Prev", id="prev_page", classes="page-btn"),
@@ -148,7 +155,6 @@ class FullScreenNewsFeed(Screen):
                 id="pagination",
                 classes="pagination-bar",
             ),
-
             id="feed_layout",
             classes="feed-layout",
         )
@@ -196,7 +202,8 @@ class FullScreenNewsFeed(Screen):
         if self.search_query:
             query = self.search_query.lower()
             items = [
-                item for item in items
+                item
+                for item in items
                 if query in (item.get("title") or "").lower()
                 or query in (item.get("content") or "").lower()
                 or any(query in t.lower() for t in item.get("tickers", []))
@@ -270,10 +277,14 @@ class FullScreenNewsFeed(Screen):
         try:
             status = self.query_one("#status_bar", Static)
             total = len(self.news_items)
-            high_impact = sum(1 for i in self.news_items if i.get("impact_score", 0) >= 80)
+            high_impact = sum(
+                1 for i in self.news_items if i.get("impact_score", 0) >= 80
+            )
 
             cat_str = f"[cyan]{self.selected_category or 'All'}[/cyan]"
-            status.update(f"{cat_str} | {total} items | {high_impact} breaking | {self.search_query or 'No search'}")
+            status.update(
+                f"{cat_str} | {total} items | {high_impact} breaking | {self.search_query or 'No search'}"
+            )
         except Exception:
             pass
 
@@ -322,7 +333,9 @@ class FullScreenNewsFeed(Screen):
                 self.current_page -= 1
                 self._render_news()
         elif btn_id == "next_page":
-            total_pages = (len(self.news_items) + self.items_per_page - 1) // self.items_per_page
+            total_pages = (
+                len(self.news_items) + self.items_per_page - 1
+            ) // self.items_per_page
             if self.current_page < total_pages - 1:
                 self.current_page += 1
                 self._render_news()

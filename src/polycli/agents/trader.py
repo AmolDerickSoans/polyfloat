@@ -39,7 +39,16 @@ class TraderAgent(BaseAgent):
 
     def _register_tools(self):
         """Register trader-specific tools"""
-        pass
+        from polycli.agents.tools.trading import register_trading_tools
+        
+        # Register trading tools (wallet balance, order placement, etc.)
+        register_trading_tools(
+            self.tool_registry,
+            self.provider,
+            None  # Kalshi provider can be added later
+        )
+        
+        logger.info("Trading tools registered", agent=self.agent_id)
 
     async def process(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """BaseAgent required method"""

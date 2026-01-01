@@ -74,8 +74,9 @@ def ensure_credentials():
         return False
 
     missing = []
-    if not is_configured("POLY_PRIVATE_KEY", "SKIP_POLY"):
-        missing.append("Polymarket Private Key")
+    # Check for both private key AND funder address for Polymarket
+    if not is_configured("POLY_PRIVATE_KEY", "SKIP_POLY") or not is_configured("POLY_FUNDER_ADDRESS", "SKIP_POLY"):
+        missing.append("Polymarket Credentials")
 
     if not is_configured("GOOGLE_API_KEY", "SKIP_GEMINI"):
         missing.append("Google Gemini API Key")
@@ -99,25 +100,27 @@ def ensure_credentials():
             )
         )
 
-        if "Polymarket Private Key" in missing:
+        if "Polymarket Credentials" in missing:
             shell_key = os.environ.get("POLY_PRIVATE_KEY")
+            shell_funder = os.environ.get("POLY_FUNDER_ADDRESS")
             use_shell = False
-            if shell_key:
+            if shell_key and shell_funder:
                 console.print(
                     "\n[bold cyan]Polymarket Integration[/bold cyan] (Detected in Shell Environment)"
                 )
                 if (
                     Prompt.ask(
-                        f"Use POLY_PRIVATE_KEY from shell? ({shell_key[:6]}...{shell_key[-4:]})",
+                        f"Use POLY_PRIVATE_KEY and POLY_FUNDER_ADDRESS from shell? (Key: {shell_key[:6]}...{shell_key[-4:]}, Funder: {shell_funder[:6]}...{shell_funder[-4:]})",
                         choices=["y", "n"],
                         default="y",
                     )
                     == "y"
                 ):
                     set_key(env_file, "POLY_PRIVATE_KEY", shell_key)
+                    set_key(env_file, "POLY_FUNDER_ADDRESS", shell_funder)
                     set_key(env_file, "SKIP_POLY", "false")
                     load_dotenv(env_file, override=True)
-                    console.print("[green]✓ Key imported from shell[/green]")
+                    console.print("[green]✓ Credentials imported from shell[/green]")
                     use_shell = True
 
             if not use_shell:
@@ -137,11 +140,26 @@ def ensure_credentials():
                             console.print(
                                 "[yellow]Warning: Poly key usually starts with 0x[/yellow]"
                             )
-                        set_key(env_file, "POLY_PRIVATE_KEY", key)
-                        set_key(env_file, "SKIP_POLY", "false")
-                        load_dotenv(env_file, override=True)
-                        os.environ["POLY_PRIVATE_KEY"] = key
-                        console.print("[green]✓ Polymarket Key saved[/green]")
+                        
+                        # Also collect funder address
+                        console.print("\n[dim]Your funder address is the wallet address that holds your USDC.[/dim]")
+                        funder = Prompt.ask("Enter your Polymarket Funder Address (wallet address)")
+                        
+                        if funder:
+                            if not funder.startswith("0x"):
+                                console.print(
+                                    "[yellow]Warning: Address usually starts with 0x[/yellow]"
+                                )
+                            
+                            set_key(env_file, "POLY_PRIVATE_KEY", key)
+                            set_key(env_file, "POLY_FUNDER_ADDRESS", funder)
+                            set_key(env_file, "SKIP_POLY", "false")
+                            load_dotenv(env_file, override=True)
+                            os.environ["POLY_PRIVATE_KEY"] = key
+                            os.environ["POLY_FUNDER_ADDRESS"] = funder
+                            console.print("[green]✓ Polymarket credentials saved[/green]")
+                        else:
+                            console.print("[yellow]Funder address required for wallet balance. Setup incomplete.[/yellow]")
                 else:
                     set_key(env_file, "SKIP_POLY", "true")
                     load_dotenv(env_file, override=True)

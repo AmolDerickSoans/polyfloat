@@ -391,6 +391,130 @@ class PolyProvider(BaseProvider):
             logger.error("Error fetching last trade price for charting", market_id=market_id, error=str(e))
             return []
 
+    async def get_balance(self) -> Dict[str, Any]:
+        """
+        Get wallet balance (USDC) and allowances.
+        
+        Returns:
+            Dict containing 'balance' and 'allowance' for USDC
+        """
+        if not self.private_key:
+            logger.warning("No private key configured - cannot fetch balance")
+            return {"balance": "0", "allowance": "0", "error": "Not configured"}
+        
+        try:
+            from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+            
+            # Ensure API credentials are set
+            if not hasattr(self.client, 'creds') or not self.client.creds:
+                self.client.set_api_creds(self.client.create_or_derive_api_creds())
+            
+            params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+            balance_info = self.client.get_balance_allowance(params)
+            
+            return {
+                "balance": balance_info.get("balance", "0"),
+                "allowance": balance_info.get("allowance", "0")
+            }
+        except Exception as e:
+            logger.error("Error fetching wallet balance", error=str(e))
+            return {"balance": "0", "allowance": "0", "error": str(e)}
+    
+    async def get_trades(self, market_id: Optional[str] = None) -> List[Trade]:
+        """
+        Get user's trade history.
+        
+        Args:
+            market_id: Optional market/token ID to filter trades
+            
+        Returns:
+            List of Trade objects
+        """
+        if not self.private_key:
+            return []
+        
+        try:
+            from py_clob_client.clob_types import TradeParams
+            
+            # Ensure API credentials are set
+            if not hasattr(self.client, 'creds') or not self.client.creds:
+                self.client.set_api_creds(self.client.create_or_derive_api_creds())
+            
+            # Get trades with optional filtering
+            if market_id:
+                params = TradeParams(asset_id=market_id)
+                trades_data = self.client.get_trades(params)
+            else:
+                trades_data = self.client.get_trades()
+            
+            trades = []
+            for t in trades_data:
+                trades.append(Trade(
+                    id=t.get("id", ""),
+                    market_id=t.get("asset_id", ""),
+                    price=float(t.get("price", 0)),
+                    size=float(t.get("size", 0)),
+                    side=Side.BUY if t.get("side") == "BUY" else Side.SELL,
+                    timestamp=float(t.get("timestamp", 0))
+                ))
+            
+            return trades
+        except Exception as e:
+            logger.error("Error fetching trade history", error=str(e))
+            return []
+    
+    async def place_market_order(
+        self,
+        token_id: str,
+        side: Side,
+        amount: float
+    ) -> Order:
+        """
+        Place a market order (FOK - Fill or Kill).
+        
+        Args:
+            token_id: The token ID to trade
+            side: BUY or SELL
+            amount: Dollar amount to spend (for BUY) or number of shares (for SELL)
+            
+        Returns:
+            Order object
+        """
+        if not self.private_key:
+            raise ValueError("Private key required for trading")
+        
+        try:
+            from py_clob_client.clob_types import MarketOrderArgs, OrderType
+            from py_clob_client.order_builder.constants import BUY, SELL
+            
+            # Ensure API credentials are set
+            if not hasattr(self.client, 'creds') or not self.client.creds:
+                self.client.set_api_creds(self.client.create_or_derive_api_creds())
+            
+            market_order = MarketOrderArgs(
+                token_id=token_id,
+                amount=amount,
+                side=BUY if side == Side.BUY else SELL,
+                order_type=OrderType.FOK
+            )
+            
+            signed_order = self.client.create_market_order(market_order)
+            response = self.client.post_order(signed_order, OrderType.FOK)
+            
+            return Order(
+                id=response.get("orderID", "unknown"),
+                market_id=token_id,
+                price=0.0,  # Market order - price determined at execution
+                size=amount,
+                side=side,
+                type=OrderType.MARKET,
+                status=OrderStatus.FILLED if response.get("status") == "success" else OrderStatus.OPEN,
+                timestamp=0.0
+            )
+        except Exception as e:
+            logger.error("Market order placement failed", token_id=token_id, error=str(e))
+            raise
+
     async def get_prices_history(
         self,
         token_id: str,

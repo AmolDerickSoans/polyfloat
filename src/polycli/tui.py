@@ -125,6 +125,49 @@ class NewsTicker(Static):
         ]
 
 
+
+
+class WalletStatus(Static):
+    """Display wallet balance and trading status"""
+    
+    balance: reactive[str] = reactive("Loading...")
+    
+    def __init__(self, poly_provider: PolyProvider, **kwargs):
+        super().__init__(**kwargs)
+        self.poly_provider = poly_provider
+    
+    def render(self) -> RenderableType:
+        table = Table(show_header=False, expand=True, box=None, padding=(0, 1))
+        table.add_column("Label", style="dim", width=12)
+        table.add_column("Value", style="bold white")
+        table.add_row("USDC Balance", self.balance)
+        return Panel(table, title="Wallet", border_style="green", height=4)
+    
+    def on_mount(self) -> None:
+        """Start balance refresh loop"""
+        self._start_balance_refresh()
+    
+    @work
+    async def _start_balance_refresh(self) -> None:
+        """Periodically refresh balance"""
+        while True:
+            await self._update_balance()
+            await asyncio.sleep(30)
+    
+    async def _update_balance(self) -> None:
+        """Fetch and update balance"""
+        try:
+            balance_info = await self.poly_provider.get_balance()
+            if "error" not in balance_info:
+                balance_val = float(balance_info.get("balance", 0))
+                self.balance = f"${balance_val:,.2f}"
+            else:
+                self.balance = "Not configured"
+        except Exception as e:
+            logger.error("Failed to fetch balance", error=str(e))
+            self.balance = "Error"
+
+
 class QuickOrderModal(ModalScreen):
     """Confirm order before execution"""
 
@@ -803,6 +846,106 @@ class PortfolioView(Container):
             self.app.notify(f"Load error: {e}", severity="error")
 
 
+class TradeHistoryView(Container):
+    """Trade history and order tracking"""
+    
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("TRADE HISTORY", classes="p_title")
+            yield DataTable(id="trades_table")
+            yield Label("ORDER HISTORY", classes="p_title")
+            yield DataTable(id="order_history_table")
+            with Horizontal(id="h_controls"):
+                yield Button("Refresh", id="h_refresh")
+                yield Button("Export CSV", id="h_export")
+    
+    def on_mount(self) -> None:
+        # Setup trades table
+        self.query_one("#trades_table", DataTable).add_columns(
+            "Time", "Market", "Side", "Price", "Size", "Total", "Prov"
+        )
+        # Setup order history table  
+        self.query_one("#order_history_table", DataTable).add_columns(
+            "Time", "ID", "Market", "Side", "Price", "Size", "Status", "Prov"
+        )
+        self.load_history()
+    
+    @work(exclusive=True)
+    async def load_history(self) -> None:
+        """Load trade and order history from providers"""
+        try:
+            # Fetch trades from both providers
+            poly_trades = await self.app.poly.get_trades()
+            kalshi_trades = await self.app.kalshi.get_trades()
+            
+            # Fetch order history (using get_orders for now)
+            poly_orders = await self.app.poly.get_orders()
+            kalshi_orders = await self.app.kalshi.get_orders()
+            
+            # Populate trades table
+            trades_table = self.query_one("#trades_table", DataTable)
+            trades_table.clear()
+            
+            all_trades = poly_trades + kalshi_trades
+            # Sort by timestamp (newest first)
+            all_trades.sort(key=lambda t: t.timestamp, reverse=True)
+            
+            for trade in all_trades[:100]:  # Show last 100 trades
+                from datetime import datetime
+                time_str = datetime.fromtimestamp(trade.timestamp).strftime("%m-%d %H:%M") if trade.timestamp else "N/A"
+                total = trade.price * trade.size
+                provider = "P" if hasattr(self.app.poly, 'client') else "K"
+                
+                trades_table.add_row(
+                    time_str,
+                    trade.market_id[:20],
+                    f"[green]{trade.side.value}[/]" if trade.side == Side.BUY else f"[red]{trade.side.value}[/]",
+                    f"${trade.price:.3f}",
+                    f"{trade.size:.2f}",
+                    f"${total:.2f}",
+                    provider
+                )
+            
+            # Populate order history table
+            orders_table = self.query_one("#order_history_table", DataTable)
+            orders_table.clear()
+            
+            all_orders = poly_orders + kalshi_orders
+            # Sort by most recent
+            for order in all_orders[:100]:
+                from datetime import datetime
+                time_str = datetime.fromtimestamp(order.timestamp).strftime("%m-%d %H:%M") if order.timestamp else "N/A"
+                provider = "P" if order.market_id.startswith("0x") else "K"
+                
+                status_color = "green" if order.status == OrderStatus.FILLED else "yellow" if order.status == OrderStatus.OPEN else "dim"
+                
+                orders_table.add_row(
+                    time_str,
+                    order.id[:12],
+                    order.market_id[:20],
+                    f"[green]{order.side.value}[/]" if order.side == Side.BUY else f"[red]{order.side.value}[/]",
+                    f"${order.price:.3f}",
+                    f"{order.size:.2f}",
+                    f"[{status_color}]{order.status.value}[/]",
+                    provider
+                )
+                
+        except Exception as e:
+            logger.error("Failed to load trade history", error=str(e))
+            self.app.notify(f"History load error: {str(e)}", severity="error")
+    
+    @on(Button.Pressed, "#h_refresh")
+    def refresh_history(self) -> None:
+        """Refresh history data"""
+        self.load_history()
+        self.app.notify("Refreshing history...", severity="information")
+    
+    @on(Button.Pressed, "#h_export")
+    def export_csv(self) -> None:
+        """Export trade history to CSV"""
+        self.app.notify("CSV export coming soon!", severity="information")
+
+
 class DashboardApp(App):
     """PolyCLI Bloomberg Terminal"""
 
@@ -822,6 +965,7 @@ class DashboardApp(App):
         ("a", "show_arb", "Arbitrage"),
         ("d", "show_dash", "Dashboard"),
         ("p", "show_portfolio", "Portfolio"),
+        ("h", "show_history", "Trade History"),
         ("n", "show_news", "News Feed"),
         ("m", "cycle_agent_mode", "Agent Mode"),
         ("escape", "escape", "Back/Cancel"),
@@ -1015,6 +1159,9 @@ class DashboardApp(App):
                     classes="search-input",
                 )
 
+                yield Label("Wallet", classes="section_title")
+                yield WalletStatus(poly_provider=self.poly, id="wallet_status")
+                
                 yield Label("Market List", classes="section_title")
                 yield DataTable(id="market_list")
 
@@ -1114,6 +1261,10 @@ class DashboardApp(App):
     def action_show_portfolio(self) -> None:
         self.query_one("#switcher").current = "portfolio"
 
+    def action_show_history(self) -> None:
+        """Show trade history screen"""
+        self.push_screen(TradeHistoryView())
+
     def action_show_dash(self) -> None:
         self.query_one("#switcher").current = "dashboard"
 
@@ -1153,15 +1304,63 @@ class DashboardApp(App):
                 return
             try:
                 prov = self.kalshi if m.provider == "kalshi" else self.poly
-                res = await prov.place_order(
-                    market_id=m.id,
-                    side=order_data["side"],
-                    size=order_data["amount"],
-                    price=0.50,
-                )
-                self.notify(f"Order Sent: {res.id[:8]}")
+                side = order_data["side"]
+                amount = order_data["amount"]
+                
+                # Check balance before placing order (for Polymarket only, for now)
+                if m.provider == "polymarket" and side == Side.BUY:
+                    balance_info = await self.poly.get_balance()
+                    if "error" not in balance_info:
+                        balance = float(balance_info.get("balance", 0))
+                        if amount > balance:
+                            self.notify(
+                                f"Insufficient balance! Have: ${balance:.2f}, Need: ${amount:.2f}",
+                                severity="error"
+                            )
+                            return
+                    else:
+                        self.notify("Warning: Could not verify balance", severity="warning")
+                
+                # Use market order for Polymarket
+                if m.provider == "polymarket":
+                    # Get token ID from market metadata
+                    extra = m.metadata or {}
+                    ctids = extra.get("clobTokenIds", [])
+                    if isinstance(ctids, str):
+                        import json
+                        ctids = json.loads(ctids)
+                    
+                    if not ctids:
+                        self.notify("No token ID found for this market", severity="error")
+                        return
+                    
+                    token_id = ctids[0]  # Use YES token
+                    res = await self.poly.place_market_order(
+                        token_id=token_id,
+                        side=side,
+                        amount=amount
+                    )
+                    self.notify(f"Market Order Executed: {res.id[:8]}")
+                else:
+                    # Kalshi - use regular limit order
+                    res = await prov.place_order(
+                        market_id=m.id,
+                        side=side,
+                        size=amount,
+                        price=0.50,  # TODO: Get from orderbook
+                    )
+                    self.notify(f"Order Sent: {res.id[:8]}")
+                
+                # Refresh wallet balance
+                try:
+                    wallet_status = self.query_one("#wallet_status", WalletStatus)
+                    await wallet_status._update_balance()
+                except Exception:
+                    pass
+                    
             except Exception as e:
-                self.notify(f"Order Fail: {e}", severity="error")
+                logger.error("Order placement failed", error=str(e))
+                self.notify(f"Order Fail: {str(e)[:50]}", severity="error")
 
     @on(DataTable.RowSelected, "#market_list")
     def select_market(self, event: DataTable.RowSelected) -> None:
