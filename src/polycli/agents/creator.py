@@ -21,7 +21,8 @@ class CreatorAgent(BaseAgent):
         sqlite_store: Optional[Any] = None,
         provider: Optional[Any] = None,
         executor: Optional[ExecutorAgent] = None,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        news_api_client: Optional[Any] = None
     ):
         super().__init__(
             agent_id=agent_id,
@@ -29,10 +30,11 @@ class CreatorAgent(BaseAgent):
             redis_store=redis_store,
             sqlite_store=sqlite_store,
             provider=provider,
-            config=config
+            config=config,
+            news_api_client=news_api_client
         )
         self.executor = executor
-        logger.info("Creator Agent initialized")
+        logger.info("Creator Agent initialized", news_available=self.news_available)
 
     def _register_tools(self):
         """Register creator-specific tools"""

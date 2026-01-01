@@ -23,7 +23,8 @@ class SupervisorAgent(BaseAgent):
         redis_store=None,
         sqlite_store=None,
         provider=None,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        news_api_client=None
     ):
         super().__init__(
             agent_id="supervisor",
@@ -31,33 +32,38 @@ class SupervisorAgent(BaseAgent):
             redis_store=redis_store,
             sqlite_store=sqlite_store,
             provider=provider,
-            config=config
+            config=config,
+            news_api_client=news_api_client
         )
         
-        # Initialize the specialized agents
+        # Initialize the specialized agents with news access
         self.executor = ExecutorAgent(
             redis_store=redis_store,
             sqlite_store=sqlite_store,
             provider=provider,
-            config=config
+            config=config,
+            news_api_client=news_api_client
         )
         self.trader = TraderAgent(
             redis_store=redis_store,
             sqlite_store=sqlite_store,
             provider=provider,
             executor=self.executor,
-            config=config
+            config=config,
+            news_api_client=news_api_client
         )
         self.creator = CreatorAgent(
             redis_store=redis_store,
             sqlite_store=sqlite_store,
             provider=provider,
             executor=self.executor,
-            config=config
+            config=config,
+            news_api_client=news_api_client
         )
         
         self.active_agents = ["executor", "trader", "creator"]
-        logger.info("Supervisor Agent initialized with Creator/Trader/Executor trio")
+        logger.info("Supervisor Agent initialized with Creator/Trader/Executor trio", 
+                   news_available=news_api_client is not None)
 
     async def process(self, state: SupervisorState) -> SupervisorState:
         """Standard lifecycle method"""

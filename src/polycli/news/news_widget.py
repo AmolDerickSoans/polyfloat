@@ -81,7 +81,7 @@ class NewsPanel(Vertical):
 
     def watch_selected_category(self, category: Optional[str]):
         """React to category filter change"""
-        asyncio.create_task(self._refresh_news())
+        self._refresh_news()  # @work decorator handles background execution
 
     @work(exclusive=True)
     async def _refresh_news(self):
@@ -121,7 +121,7 @@ class NewsPanel(Vertical):
     def _auto_refresh(self):
         """Auto-refresh if not recently refreshed"""
         if time.time() - self._last_refresh > 30:
-            asyncio.create_task(self._refresh_news())
+            self._refresh_news()  # @work decorator handles background execution
 
     def _update_display(self):
         """Update news display"""
@@ -201,7 +201,7 @@ class NewsPanel(Vertical):
         button_id = event.button.id
 
         if button_id == "refresh_news":
-            asyncio.create_task(self._refresh_news())
+            self._refresh_news()  # @work decorator handles background execution
         elif button_id == "cat_all":
             self.selected_category = None
             self._update_button_states(button_id)
@@ -256,12 +256,12 @@ class NewsPanel(Vertical):
 
         if filters:
             self.current_filters = filters
-            asyncio.create_task(self._refresh_news())
+            self._refresh_news()  # @work decorator handles background execution
 
     def clear_market_filter(self):
         """Clear market-specific filter"""
         self.current_filters = {}
-        asyncio.create_task(self._refresh_news())
+        self._refresh_news()  # @work decorator handles background execution
 
     def add_news(self, news_data: Dict[str, Any]):
         """Add a single news item (for WebSocket updates)"""

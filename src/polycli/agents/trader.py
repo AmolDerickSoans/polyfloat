@@ -22,7 +22,8 @@ class TraderAgent(BaseAgent):
         sqlite_store: Optional[Any] = None,
         provider: Optional[Any] = None,
         executor: Optional[ExecutorAgent] = None,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        news_api_client: Optional[Any] = None
     ):
         super().__init__(
             agent_id=agent_id,
@@ -30,10 +31,11 @@ class TraderAgent(BaseAgent):
             redis_store=redis_store,
             sqlite_store=sqlite_store,
             provider=provider,
-            config=config
+            config=config,
+            news_api_client=news_api_client
         )
         self.executor = executor
-        logger.info("Trader Agent initialized")
+        logger.info("Trader Agent initialized", news_available=self.news_available)
 
     def _register_tools(self):
         """Register trader-specific tools"""
@@ -70,6 +72,7 @@ class TraderAgent(BaseAgent):
         """
         Implementation of the official 'one_best_trade' strategy.
         Evaluates events, uses RAG filtering, and finds the best trade.
+        Now includes news context for enhanced decision-making.
         """
         if not self.provider or not self.executor:
             return {"error": "Provider or Executor not available", "success": False}
@@ -107,20 +110,45 @@ class TraderAgent(BaseAgent):
             if not filtered_markets:
                 return {"error": "No markets passed RAG filtering", "success": False}
 
-            # 5. Source Best Trade
-            await self.publish_status("Calculating best trade strategy...")
+            # 5. Fetch news context for the selected market (Phase 5: News Integration)
             market = filtered_markets[0]
-            best_trade = await self.executor.source_best_trade(market)
+            market_question = market[0].metadata.get("question", "")
+            news_context = ""
+            
+            if self.news_available:
+                await self.publish_status("Fetching relevant news...")
+                try:
+                    # Get market-specific news
+                    market_news = await self.news_interface.get_market_news(market_question, limit=3)
+                    
+                    # Get high-impact news for broader context
+                    high_impact_news = await self.news_interface.get_high_impact_news(min_impact=70, limit=2)
+                    
+                    # Combine and format
+                    all_news = market_news + [n for n in high_impact_news if n not in market_news]
+                    news_context = self.news_interface.format_news_context(all_news[:5])
+                    
+                    logger.info("Trader: News context fetched", 
+                               market_news_count=len(market_news),
+                               high_impact_count=len(high_impact_news))
+                except Exception as e:
+                    logger.warning("Failed to fetch news context", error=str(e))
+                    news_context = ""
+
+            # 6. Source Best Trade (with news context)
+            await self.publish_status("Calculating best trade strategy...")
+            best_trade = await self.executor.source_best_trade(market, news_context=news_context)
             logger.info(f"Trader: calculated trade: {best_trade}")
 
-            # 6. Format and propose/execute
+            # 7. Format and propose/execute
             # In our TUI, we'll usually return this for user approval
             return {
                 "success": True,
                 "strategy": "one_best_trade",
                 "trade_plan": best_trade,
                 "market_id": market[0].metadata.get("id"),
-                "question": market[0].metadata.get("question")
+                "question": market_question,
+                "news_context_used": bool(news_context)
             }
 
         except Exception as e:

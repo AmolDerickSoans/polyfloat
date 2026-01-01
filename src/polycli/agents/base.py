@@ -17,6 +17,141 @@ from polycli.providers.base import BaseProvider
 logger = structlog.get_logger()
 
 
+class AgentNewsInterface:
+    """
+    News interface for agents to access news context for trading decisions.
+    Extracts relevant entities from market questions and fetches related news.
+    """
+    
+    # Known entities for extraction
+    CRYPTO_TICKERS = ["BTC", "ETH", "SOL", "ADA", "DOGE", "MATIC", "AVAX", "XRP", "BNB", "DOT", "LINK"]
+    PEOPLE_NAMES = [
+        "Trump", "Biden", "Harris", "Obama", "Powell", "Yellen", "Gensler",
+        "Musk", "Vitalik", "Buterin", "Zuckerberg", "Altman", "SBF", "CZ"
+    ]
+    CATEGORY_KEYWORDS = {
+        "politics": ["election", "vote", "congress", "senate", "president", "governor", "campaign"],
+        "crypto": ["bitcoin", "ethereum", "crypto", "blockchain", "defi", "nft", "token"],
+        "economics": ["fed", "rate", "inflation", "gdp", "employment", "treasury", "recession"],
+        "sports": ["nba", "nfl", "mlb", "championship", "playoff", "game", "match", "tournament"]
+    }
+    
+    def __init__(self, api_client=None):
+        self.api_client = api_client
+    
+    def extract_entities(self, text: str) -> Dict[str, Any]:
+        """Extract tickers, people, and keywords from market question text"""
+        if not text:
+            return {"tickers": [], "people": [], "category": None, "keywords": []}
+        
+        text_upper = text.upper()
+        text_lower = text.lower()
+        
+        # Extract tickers
+        tickers = [t for t in self.CRYPTO_TICKERS if t.upper() in text_upper]
+        
+        # Extract people
+        people = [p for p in self.PEOPLE_NAMES if p.lower() in text_lower]
+        
+        # Detect category
+        category = None
+        keywords = []
+        for cat, cat_keywords in self.CATEGORY_KEYWORDS.items():
+            for kw in cat_keywords:
+                if kw.lower() in text_lower:
+                    category = cat
+                    keywords.append(kw)
+        
+        return {
+            "tickers": tickers,
+            "people": people,
+            "category": category,
+            "keywords": keywords
+        }
+    
+    async def get_market_news(self, market_question: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Get news related to a specific market question"""
+        if not self.api_client:
+            return []
+        
+        try:
+            entities = self.extract_entities(market_question)
+            news_items = []
+            
+            # Fetch by ticker first (most specific)
+            if entities["tickers"]:
+                items = await self.api_client.get_news(
+                    ticker=entities["tickers"][0],
+                    limit=limit
+                )
+                news_items.extend([item.model_dump() for item in items])
+            
+            # Fetch by person if not enough ticker news
+            if len(news_items) < limit and entities["people"]:
+                items = await self.api_client.get_news(
+                    person=entities["people"][0],
+                    limit=limit - len(news_items)
+                )
+                news_items.extend([item.model_dump() for item in items])
+            
+            # Fetch by category if still not enough
+            if len(news_items) < limit and entities["category"]:
+                items = await self.api_client.get_news(
+                    category=entities["category"],
+                    limit=limit - len(news_items)
+                )
+                news_items.extend([item.model_dump() for item in items])
+            
+            # Deduplicate by ID
+            seen_ids = set()
+            unique_items = []
+            for item in news_items:
+                item_id = item.get("id")
+                if item_id and item_id not in seen_ids:
+                    seen_ids.add(item_id)
+                    unique_items.append(item)
+            
+            return unique_items[:limit]
+            
+        except Exception as e:
+            logger.warning("Failed to fetch market news", error=str(e))
+            return []
+    
+    async def get_high_impact_news(self, min_impact: int = 70, limit: int = 5) -> List[Dict[str, Any]]:
+        """Get recent high-impact news for general market awareness"""
+        if not self.api_client:
+            return []
+        
+        try:
+            items = await self.api_client.get_news(min_impact=min_impact, limit=limit)
+            return [item.model_dump() for item in items]
+        except Exception as e:
+            logger.warning("Failed to fetch high impact news", error=str(e))
+            return []
+    
+    def format_news_context(self, news_items: List[Dict[str, Any]], max_items: int = 5) -> str:
+        """Format news items as context string for LLM prompts"""
+        if not news_items:
+            return "No recent news available."
+        
+        lines = []
+        for i, item in enumerate(news_items[:max_items], 1):
+            impact = item.get("impact_score", 0)
+            impact_label = "HIGH" if impact >= 70 else "MEDIUM" if impact >= 40 else "LOW"
+            
+            title = item.get("title") or item.get("content", "")[:80]
+            source = item.get("source", "unknown")
+            tickers = item.get("tickers", [])
+            people = item.get("people", [])
+            
+            ticker_str = f" [${', $'.join(tickers[:3])}]" if tickers else ""
+            people_str = f" [{', '.join(people[:2])}]" if people else ""
+            
+            lines.append(f"{i}. [{impact_label}] {title}{ticker_str}{people_str} (via {source})")
+        
+        return "\n".join(lines)
+
+
 class BaseAgent(ABC):
     """Base class for all agents in the system"""
     
@@ -27,7 +162,8 @@ class BaseAgent(ABC):
         redis_store: Optional[RedisStore] = None,
         sqlite_store: Optional[SQLiteStore] = None,
         provider: Optional[BaseProvider] = None,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        news_api_client: Optional[Any] = None
     ):
         self.agent_id = agent_id
         self.model = model
@@ -36,6 +172,10 @@ class BaseAgent(ABC):
         self.sqlite = sqlite_store
         self.provider = provider
         self.tool_registry = ToolRegistry()
+        
+        # Initialize news interface for market context
+        self.news_interface = AgentNewsInterface(api_client=news_api_client)
+        self.news_available = news_api_client is not None
         
         # Initialize LLM
         self._init_llm()
@@ -46,7 +186,8 @@ class BaseAgent(ABC):
         logger.info(
             "Agent initialized",
             agent_id=agent_id,
-            model=model
+            model=model,
+            news_available=self.news_available
         )
     
     def _init_llm(self):

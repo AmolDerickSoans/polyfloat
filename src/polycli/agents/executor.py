@@ -39,7 +39,8 @@ class ExecutorAgent(BaseAgent):
         redis_store: Optional[Any] = None,
         sqlite_store: Optional[Any] = None,
         provider: Optional[Any] = None,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        news_api_client: Optional[Any] = None
     ):
         super().__init__(
             agent_id=agent_id,
@@ -47,7 +48,8 @@ class ExecutorAgent(BaseAgent):
             redis_store=redis_store,
             sqlite_store=sqlite_store,
             provider=provider,
-            config=config
+            config=config,
+            news_api_client=news_api_client
         )
         
         # Token limits for Gemini are much higher than GPT-3.5, 
@@ -59,7 +61,7 @@ class ExecutorAgent(BaseAgent):
         self.search = SearchConnector()
         self.prompter = Prompter()
         
-        logger.info("Executor Agent initialized")
+        logger.info("Executor Agent initialized", news_available=self.news_available)
 
     def _register_tools(self):
         """Register executor-specific tools"""
@@ -134,8 +136,8 @@ class ExecutorAgent(BaseAgent):
         logger.info("Executor: filtering markets with RAG", prompt=prompt)
         return self.chroma.markets(markets, prompt)
 
-    async def source_best_trade(self, market_object: Any) -> str:
-        """Ported from reference: Determine optimal trade parameters"""
+    async def source_best_trade(self, market_object: Any, news_context: str = "") -> str:
+        """Ported from reference: Determine optimal trade parameters with optional news context"""
         if not self.prompter: return "Prompter not initialized"
         
         # market_object is usually a list with one item (the RAG result)
@@ -153,11 +155,21 @@ class ExecutorAgent(BaseAgent):
             
         question = market_meta.get("question", "")
         description = market_document.get("page_content", "")
+        
+        # Build enhanced description with news context if available
+        enhanced_description = description
+        if news_context:
+            enhanced_description = f"""{description}
 
-        # 1. Get Superforecast
-        sf_prompt = self.prompter.superforecaster(question, description, outcomes)
+RECENT RELEVANT NEWS:
+{news_context}
+
+Consider the above news when making your forecast. Recent developments may significantly impact probabilities."""
+
+        # 1. Get Superforecast (with news-enhanced context)
+        sf_prompt = self.prompter.superforecaster(question, enhanced_description, outcomes)
         sf_result = await self.call_llm(sf_prompt)
-        logger.info("Executor: Superforecast complete", result=sf_result)
+        logger.info("Executor: Superforecast complete", result=sf_result, has_news_context=bool(news_context))
 
         # 2. Identify Best Trade based on forecast
         bt_prompt = self.prompter.one_best_trade(sf_result, outcomes, outcome_prices)

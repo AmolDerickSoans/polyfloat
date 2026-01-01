@@ -54,6 +54,7 @@ from polycli.agents import SupervisorAgent
 from polycli.news.websocket_client import NewsWebSocketClient
 from polycli.news.api_client import NewsAPIClient
 from polycli.news.news_widget import NewsPanel
+from polycli.news.alerts import NewsAlertManager, AlertConfig, DEFAULT_TERMINAL_CONFIG
 from polycli.tui_news_feed import FullScreenNewsFeed
 import structlog
 
@@ -834,22 +835,32 @@ class DashboardApp(App):
         self.poly = PolyProvider()
         self.kalshi = KalshiProvider()
         
+        # News clients (polyfloat-news integration) - initialized first for agent access
+        self.news_ws_client = NewsWebSocketClient()
+        self.news_api_client = NewsAPIClient()
+        self.news_available = False  # Set to True when connected
+        
+        # News alert manager for real-time notifications (Phase 6)
+        # Note: ws_client callback is added later, alert callback registered in on_mount
+        self.news_alert_manager = NewsAlertManager(
+            ws_client=None,  # Connect later to avoid timing issues
+            api_client=self.news_api_client
+        )
+        self.news_alert_manager.add_config(DEFAULT_TERMINAL_CONFIG)
+
         # Determine initial provider for supervisor
         initial_prov = self.poly # Default
         
+        # Initialize supervisor with news client for agent context injection
         self.supervisor = SupervisorAgent(
             redis_store=self.redis_store, 
             sqlite_store=self.sqlite_store,
-            provider=initial_prov
+            provider=initial_prov,
+            news_api_client=self.news_api_client
         )
         self.ws_client = PolymarketWebSocket()
         self.kalshi_ws = KalshiWebSocket()
         self.auto_loop_task = None
-
-        # News clients (polyfloat-news integration)
-        self.news_ws_client = NewsWebSocketClient()
-        self.news_api_client = NewsAPIClient()
-        self.news_available = False  # Set to True when connected
 
     def action_cycle_agent_mode(self) -> None:
         modes = ["manual", "auto-approval", "full-auto"]
@@ -862,12 +873,35 @@ class DashboardApp(App):
         news_feed = FullScreenNewsFeed(news_api_client=self.news_api_client)
         self.push_screen(news_feed)
 
+    async def _on_news_alert(self, user_id: str, alert) -> None:
+        """Handle news alerts - show notification in TUI"""
+        try:
+            # Format alert message
+            formatted = self.news_alert_manager.format_alert(alert)
+            
+            # Show notification based on priority
+            if alert.priority.value == "breaking":
+                self.notify(f"[red]{formatted}[/red]", title="🔴 BREAKING NEWS", severity="error")
+            elif alert.priority.value == "high":
+                self.notify(f"[yellow]{formatted}[/yellow]", title="🟡 HIGH IMPACT", severity="warning")
+            else:
+                self.notify(formatted, title="📰 News Alert", severity="information")
+            
+            logger.debug("News alert displayed", priority=alert.priority.value)
+        except Exception as e:
+            logger.error("Failed to display news alert", error=str(e))
+
     def on_mount(self) -> None:
         self.ws_client.start()
         self.call_later(self.kalshi_ws.connect)
 
         # Start background agent loop
         self.auto_loop_task = asyncio.create_task(self._agent_background_loop())
+
+        # Register news alert callback (done here to ensure method exists)
+        self.news_alert_manager.add_callback(self._on_news_alert)
+        # Connect WebSocket to alert manager
+        self.news_ws_client.add_callback("news_item", self.news_alert_manager._on_news_item)
 
         # Connect to news service (graceful fallback if unavailable)
         asyncio.create_task(self._connect_news_service())
