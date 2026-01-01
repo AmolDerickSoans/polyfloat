@@ -360,6 +360,10 @@ class BaseAgent(ABC):
             logger.error("LLM call failed", error=str(e))
             raise
     
+    def _should_continue(self) -> bool:
+        """Check if agent should continue processing."""
+        return not self._emergency_controller.is_stopped
+
     async def get_health_status(self) -> Dict[str, Any]:
         """Get agent health status"""
         import time

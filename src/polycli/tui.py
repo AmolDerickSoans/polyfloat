@@ -1,4 +1,4 @@
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, Binding
 from textual.widgets import (
     Header,
     Footer,
