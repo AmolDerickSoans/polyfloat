@@ -4,6 +4,7 @@ import asyncio
 import structlog
 from typing import Dict, Any, List, Optional
 
+from polycli.emergency import EmergencyStopController, EmergencyStopError
 from polycli.agents.base import BaseAgent
 from polycli.agents.state import SupervisorState, Task
 from polycli.agents.executor import ExecutorAgent
@@ -67,6 +68,25 @@ class SupervisorAgent(BaseAgent):
 
     async def process(self, state: SupervisorState) -> SupervisorState:
         """Standard lifecycle method"""
+        if self._emergency_controller.is_stopped:
+            logger.warning("Supervisor halted - emergency stop active")
+
+            if self.redis:
+                await self.redis.publish(
+                    "polycli:agent_status",
+                    json.dumps({
+                        "agent": "supervisor",
+                        "status": "halted",
+                        "reason": "emergency_stop"
+                    })
+                )
+
+            return {
+                **state,
+                "status": "halted",
+                "message": "Emergency stop active"
+            }
+
         return state
 
     async def _process_task_logic(self, task: Task) -> Dict[str, Any]:
