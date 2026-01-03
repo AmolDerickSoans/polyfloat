@@ -58,6 +58,7 @@ from polycli.news.api_client import NewsAPIClient
 from polycli.news.news_widget import NewsPanel
 from polycli.news.alerts import NewsAlertManager, AlertConfig, DEFAULT_TERMINAL_CONFIG
 from polycli.tui_news_feed import FullScreenNewsFeed
+from polycli.tui_sentinel import SentinelPanel
 from polycli.utils.config import get_paper_mode
 from polycli.emergency import EmergencyStopController, StopReason
 import structlog
@@ -1077,6 +1078,7 @@ class DashboardApp(App):
         ("p", "show_portfolio", "Portfolio"),
         ("h", "show_history", "Trade History"),
         ("n", "show_news", "News Feed"),
+        ("t", "show_sentinel", "Sentinel"),
         ("m", "cycle_agent_mode", "Agent Mode"),
         ("escape", "escape", "Back/Cancel"),
         ("enter", "enter", "Send Command"),
@@ -1357,6 +1359,11 @@ class DashboardApp(App):
                         calculator=self.calculator, id="analytics"
                     )
                     yield PortfolioView(id="portfolio")
+                    yield SentinelPanel(
+                        risk_guard=getattr(self, '_risk_guard', None),
+                        get_market_state=self._get_market_state_for_sentinel,
+                        id="sentinel"
+                    )
 
         yield Footer()
 
@@ -1455,6 +1462,52 @@ class DashboardApp(App):
 
     def action_show_arb(self) -> None:
         self.notify("Arbitrage Scanner coming soon")
+
+    def action_show_sentinel(self) -> None:
+        """Show Sentinel market monitor panel."""
+        self.query_one("#switcher").current = "sentinel"
+
+    def _get_market_state_for_sentinel(self, market_id: str, provider: str):
+        """Get market state for Sentinel trigger evaluation."""
+        from polycli.sentinel.triggers import MarketState
+        from datetime import datetime
+        
+        try:
+            # Get the appropriate provider
+            prov = self.poly if provider == "polymarket" else self.kalshi
+            
+            # Fetch orderbook
+            orderbook = prov.get_orderbook(market_id)
+            market = self.markets_cache.get(market_id)
+            
+            if not orderbook or not market:
+                return None
+            
+            # Build MarketState
+            best_bid = Decimal(str(orderbook.bids[0].price)) if orderbook.bids else Decimal("0")
+            best_ask = Decimal(str(orderbook.asks[0].price)) if orderbook.asks else Decimal("0")
+            spread = best_ask - best_bid if best_ask > 0 and best_bid > 0 else Decimal("0")
+            
+            bid_depth = sum(Decimal(str(b.size)) for b in orderbook.bids)
+            ask_depth = sum(Decimal(str(a.size)) for a in orderbook.asks)
+            imbalance = float(bid_depth - ask_depth) if (bid_depth + ask_depth) > 0 else 0.0
+            
+            return MarketState(
+                market_id=market_id,
+                provider=provider,
+                question=market.question,
+                status="active" if market.status == MarketStatus.ACTIVE else "halted",
+                best_bid=best_bid,
+                best_ask=best_ask,
+                spread=spread,
+                bid_depth_usd=bid_depth,
+                ask_depth_usd=ask_depth,
+                imbalance=imbalance,
+                timestamp=datetime.utcnow(),
+            )
+        except Exception as e:
+            logger.warning(f"Error fetching market state for sentinel: {e}")
+            return None
 
     def action_refresh(self) -> None:
         self.update_markets()
@@ -1585,6 +1638,12 @@ class DashboardApp(App):
         m = self.markets_cache.get(event.row_key)
         if m:
             self.query_one("#market_focus", MarketDetail).market = m
+            # Also update Sentinel panel with selected market
+            try:
+                sentinel_panel = self.query_one("#sentinel", SentinelPanel)
+                sentinel_panel.set_selected_market(m.id, m.question, m.provider)
+            except Exception:
+                pass  # Sentinel panel might not be visible
 
 
 class EmergencyStopConfirmScreen(ModalScreen):

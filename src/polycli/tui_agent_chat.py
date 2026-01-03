@@ -9,6 +9,9 @@ from textual.containers import Vertical, Container, VerticalScroll
 from textual.binding import Binding
 from rich.table import Table
 
+from polycli.telemetry import TelemetryEvent, get_session_id
+from polycli.telemetry.store import TelemetryStore
+
 
 PROPOSAL_TTL_SECONDS = 300  # 5 minutes
 
@@ -337,6 +340,54 @@ class AgentChatInterface(Container):
                 pass
             self._proposal_widget = None
 
+    def _emit_proposal_approved_event(
+        self,
+        proposal_age_seconds: float,
+        market_id: str,
+        was_stale: bool,
+    ) -> None:
+        """Emit proposal_approved telemetry event."""
+        try:
+            store = TelemetryStore()
+            if store.enabled:
+                event = TelemetryEvent(
+                    event_type="proposal_approved",
+                    timestamp=time.time(),
+                    session_id=get_session_id(),
+                    payload={
+                        "proposal_age_seconds": round(proposal_age_seconds, 2),
+                        "market_id": market_id,
+                        "was_stale": was_stale,
+                    },
+                )
+                store.emit(event)
+        except Exception:
+            pass
+
+    def _emit_proposal_rejected_event(
+        self,
+        proposal_age_seconds: float,
+        market_id: str,
+        was_stale: bool,
+    ) -> None:
+        """Emit proposal_rejected telemetry event."""
+        try:
+            store = TelemetryStore()
+            if store.enabled:
+                event = TelemetryEvent(
+                    event_type="proposal_rejected",
+                    timestamp=time.time(),
+                    session_id=get_session_id(),
+                    payload={
+                        "proposal_age_seconds": round(proposal_age_seconds, 2),
+                        "market_id": market_id,
+                        "was_stale": was_stale,
+                    },
+                )
+                store.emit(event)
+        except Exception:
+            pass
+
     async def action_approve_proposal(self) -> None:
         """Handle 'A' key press - approve and execute the trade proposal."""
         if not self.current_proposal:
@@ -371,6 +422,16 @@ class AgentChatInterface(Container):
             f"[bold cyan]Executing:[/bold cyan] {side} ${amount:.2f} on {provider}...",
         )
 
+        execution = self.current_proposal.get("execution", {})
+        generated_at = execution.get("generated_at", time.time())
+        proposal_age_seconds = time.time() - generated_at
+        market_id = (
+            (execution.get("token_id", "")[:12] + "...")
+            if len(execution.get("token_id", "")) > 12
+            else execution.get("token_id", "")
+        )
+        was_stale = self._is_proposal_stale()
+
         try:
             if side == "BUY":
                 result = await self.supervisor.trader.place_market_buy(
@@ -391,12 +452,22 @@ class AgentChatInterface(Container):
 
             if result.get("success"):
                 order_id = result.get("order_id", "unknown")[:12]
+                self._emit_proposal_approved_event(
+                    proposal_age_seconds=proposal_age_seconds,
+                    market_id=market_id,
+                    was_stale=was_stale,
+                )
                 self._add_conversation_message(
                     "system",
                     f"[bold green]✅ Order Executed![/bold green]\n"
                     f"ID: {order_id} | {side} ${amount:.2f}",
                 )
             else:
+                self._emit_proposal_rejected_event(
+                    proposal_age_seconds=proposal_age_seconds,
+                    market_id=market_id,
+                    was_stale=was_stale,
+                )
                 error_msg = result.get("error", "Unknown error")
                 self._add_conversation_message(
                     "system",
@@ -416,6 +487,22 @@ class AgentChatInterface(Container):
                 "system", "[yellow]No active proposal to cancel[/yellow]"
             )
             return
+
+        execution = self.current_proposal.get("execution", {})
+        generated_at = execution.get("generated_at", time.time())
+        proposal_age_seconds = time.time() - generated_at
+        market_id = (
+            (execution.get("token_id", "")[:12] + "...")
+            if len(execution.get("token_id", "")) > 12
+            else execution.get("token_id", "")
+        )
+        was_stale = self._is_proposal_stale()
+
+        self._emit_proposal_rejected_event(
+            proposal_age_seconds=proposal_age_seconds,
+            market_id=market_id,
+            was_stale=was_stale,
+        )
 
         self._add_conversation_message("system", "[dim]Proposal cancelled[/dim]")
         self._clear_proposal()
