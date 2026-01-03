@@ -1,11 +1,13 @@
 from typing import List, Optional, Any
-from datetime import datetime
 
 # Ported from reference agents/application/prompts.py
 # Adapted to be provider-agnostic
 
+
 class Prompter:
-    def generate_simple_ai_trader(self, market_description: str, relevant_info: str) -> str:
+    def generate_simple_ai_trader(
+        self, market_description: str, relevant_info: str
+    ) -> str:
         return f"""
         You are a trader.
         
@@ -67,18 +69,26 @@ class Prompter:
         """
 
     def filter_events(self) -> str:
-        return self.market_analyst_api() + """
+        return (
+            self.market_analyst_api()
+            + """
         
         Filter these events for the ones you will be best at trading on profitably.
         """
+        )
 
     def filter_markets(self) -> str:
-        return self.market_analyst_api() + """
+        return (
+            self.market_analyst_api()
+            + """
         
         Filter these markets for the ones you will be best at trading on profitably.
         """
+        )
 
-    def superforecaster(self, question: str, description: str, outcomes: List[str]) -> str:
+    def superforecaster(
+        self, question: str, description: str, outcomes: List[str]
+    ) -> str:
         # Reference used single 'outcome', but our models have a list.
         # We'll use the first one or prompt for all.
         outcome_str = ", ".join(outcomes)
@@ -120,9 +130,27 @@ class Prompter:
         prediction: str,
         outcomes: List[str],
         outcome_prices: Any,
+        risk_context: Optional[str] = None,
     ) -> str:
-        return self.market_analyst_api() + f"""
-        
+        risk_section = ""
+        if risk_context:
+            risk_section = f"""
+=== CRITICAL RISK CONTEXT ===
+{risk_context}
+
+IMPORTANT CONSTRAINTS:
+- Position size MUST NOT exceed the remaining position budget
+- If circuit breaker is active, respond with: NO_TRADE_AVAILABLE
+- If remaining loss budget is near zero, reduce size or skip
+- Always acknowledge the risk constraints in your response
+
+"""
+
+        return (
+            self.market_analyst_api()
+            + risk_section
+            + f"""
+
         Imagine yourself as the top trader on prediction markets, dominating the world of information markets with your keen insights and strategic acumen. You have an extraordinary ability to analyze and interpret data from diverse sources, turning complex information into profitable trading opportunities.
         You excel in predicting the outcomes of global events, from political elections to economic developments, using a combination of data analysis and intuition. Your deep understanding of probability and statistics allows you to assess market sentiment and make informed decisions quickly.
         Every day, you approach the markets with a disciplined strategy, identifying undervalued opportunities and managing your portfolio with precision. You are adept at evaluating the credibility of information and filtering out noise, ensuring that your trades are based on reliable data.
@@ -139,9 +167,16 @@ class Prompter:
             price:'price_on_the_orderbook',
             size:'percentage_of_total_funds',
             side: BUY or SELL,
+            risk_acknowledgment:'acknowledgment_of_risk_constraints',
         `
 
         Your trade should approximate price using the likelihood in your prediction.
+
+        If trading is not allowed due to risk constraints, respond with:
+        ```
+        NO_TRADE_AVAILABLE
+        reason: <explanation>
+        ```
 
         Example response:
 
@@ -149,12 +184,17 @@ class Prompter:
             price:0.5,
             size:0.1,
             side:BUY,
+            risk_acknowledgment:"Position size within budget, circuit breaker not active",
         ```
         """
+        )
 
     def create_new_market(self, filtered_markets: Any) -> str:
-        return self.market_analyst_api() + f"""
+        return (
+            self.market_analyst_api()
+            + f"""
         Based on these existing markets: {filtered_markets}
         Invent a new, unique information market that doesn't exist yet but would be popular.
         Provide a Question, Description, and possible Outcomes.
         """
+        )

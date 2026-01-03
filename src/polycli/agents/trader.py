@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional
 from polycli.agents.base import BaseAgent
 from polycli.agents.state import Task
 from polycli.agents.executor import ExecutorAgent
+from polycli.agents.tools.trading import TradingTools
 
 logger = structlog.get_logger()
 
@@ -37,17 +38,19 @@ class TraderAgent(BaseAgent):
             news_api_client=news_api_client,
         )
         self.executor = executor
+        self._trading_tools: Optional[TradingTools] = None
         logger.info("Trader Agent initialized", news_available=self.news_available)
 
     def _register_tools(self):
         """Register trader-specific tools"""
         from polycli.agents.tools.trading import register_trading_tools
 
-        # Register trading tools (wallet balance, order placement, etc.)
+        self._trading_tools = TradingTools(poly_provider=self.provider)
+
         register_trading_tools(
             self.tool_registry,
             self.provider,
-            None,  # Kalshi provider can be added later
+            None,
         )
 
         logger.info("Trading tools registered", agent=self.agent_id)
@@ -130,21 +133,19 @@ class TraderAgent(BaseAgent):
             market = filtered_markets[0]
             market_question = market[0].metadata.get("question", "")
             news_context = ""
+            risk_context_str = ""
 
             if self.news_available:
                 await self.publish_status("Fetching relevant news...")
                 try:
-                    # Get market-specific news
                     market_news = await self.news_interface.get_market_news(
                         market_question, limit=3
                     )
 
-                    # Get high-impact news for broader context
                     high_impact_news = await self.news_interface.get_high_impact_news(
                         min_impact=70, limit=2
                     )
 
-                    # Combine and format
                     all_news = market_news + [
                         n for n in high_impact_news if n not in market_news
                     ]
@@ -159,10 +160,30 @@ class TraderAgent(BaseAgent):
                     logger.warning("Failed to fetch news context", error=str(e))
                     news_context = ""
 
-            # 6. Source Best Trade (with news context)
+            # 5b. Fetch risk context for proactive risk awareness
+            try:
+                if self._trading_tools:
+                    risk_guard = self._trading_tools._get_risk_guard()
+                    risk_context = await risk_guard.get_risk_context(
+                        getattr(self.provider, "provider_name", "polymarket")
+                    )
+                    risk_context_str = risk_context.to_llm_context()
+                    logger.info(
+                        "Trader: Risk context fetched",
+                        trading_enabled=risk_context.trading_enabled,
+                        circuit_breaker_active=risk_context.circuit_breaker_active,
+                        remaining_budget=str(
+                            risk_context.remaining_position_budget_usd
+                        ),
+                    )
+            except Exception as e:
+                logger.warning("Failed to fetch risk context", error=str(e))
+                risk_context_str = ""
+
+            # 6. Source Best Trade (with news context and risk context)
             await self.publish_status("Calculating best trade strategy...")
             best_trade = await self.executor.source_best_trade(
-                market, news_context=news_context
+                market, news_context=news_context, risk_context=risk_context_str
             )
             logger.info(f"Trader: calculated trade: {best_trade}")
 

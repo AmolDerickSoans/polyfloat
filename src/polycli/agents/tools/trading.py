@@ -232,10 +232,24 @@ class TradingTools:
 
             if not risk_result.approved:
                 self._outcome_logger.log_failure("Risk check failed")
+                violation_details = [
+                    v.to_agent_feedback() for v in risk_result.violations
+                ]
+                error_codes = [
+                    v.error_code.value for v in risk_result.violations if v.error_code
+                ]
+                suggested_fixes = {
+                    v.error_code.value: v.suggested_value
+                    for v in risk_result.violations
+                    if v.error_code and v.suggested_value is not None
+                }
                 return {
                     "success": False,
                     "error": "Trade blocked by risk guard",
                     "violations": [v.message for v in risk_result.violations],
+                    "violation_details": violation_details,
+                    "error_codes": error_codes,
+                    "suggested_fixes": suggested_fixes,
                     "risk_score": risk_result.risk_score,
                 }
 
@@ -316,10 +330,24 @@ class TradingTools:
 
             if not risk_result.approved:
                 self._outcome_logger.log_failure("Risk check failed")
+                violation_details = [
+                    v.to_agent_feedback() for v in risk_result.violations
+                ]
+                error_codes = [
+                    v.error_code.value for v in risk_result.violations if v.error_code
+                ]
+                suggested_fixes = {
+                    v.error_code.value: v.suggested_value
+                    for v in risk_result.violations
+                    if v.error_code and v.suggested_value is not None
+                }
                 return {
                     "success": False,
                     "error": "Trade blocked by risk guard",
                     "violations": [v.message for v in risk_result.violations],
+                    "violation_details": violation_details,
+                    "error_codes": error_codes,
+                    "suggested_fixes": suggested_fixes,
                     "risk_score": risk_result.risk_score,
                 }
 

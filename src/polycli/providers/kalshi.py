@@ -135,6 +135,29 @@ class KalshiProvider(BaseProvider):
             logger.error("Connection Check Error", error=str(e))
             return False
 
+    async def get_balance(self) -> Dict[str, Any]:
+        """Fetch account balance from Kalshi"""
+        if not self.api_instance:
+            return {"balance": 0.0, "allowance": 0.0, "error": "Not authenticated"}
+
+        try:
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None, lambda: self.api_instance.get_balance()
+            )
+            # Kalshi balance is in cents
+            balance_cents = getattr(response, "balance", 0)
+            balance_usd = float(balance_cents) / 100.0
+
+            return {
+                "balance": balance_usd,
+                "allowance": 1000000.0,  # Arbitrary high allowance for Kalshi
+                "error": None,
+            }
+        except Exception as e:
+            logger.error("Error fetching Kalshi balance", error=str(e))
+            return {"balance": 0.0, "allowance": 0.0, "error": str(e)}
+
     async def get_events(
         self, category: Optional[str] = None, limit: int = 100
     ) -> List[Event]:

@@ -6,6 +6,11 @@ class BaseProvider(ABC):
     """Standard interface for prediction market providers"""
     
     @abstractmethod
+    async def get_balance(self) -> Dict[str, Any]:
+        """Get wallet balance information"""
+        pass
+
+    @abstractmethod
     async def get_events(
         self,
         category: Optional[str] = None,
