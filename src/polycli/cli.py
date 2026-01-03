@@ -2,8 +2,11 @@ import typer
 import os
 import sys
 import asyncio
+import time
+import hashlib
 from pathlib import Path
 from typing import Optional
+from functools import wraps
 from decimal import Decimal
 from rich.console import Console
 from rich.table import Table
@@ -12,6 +15,7 @@ from rich.panel import Panel
 from dotenv import load_dotenv, set_key
 from polycli.utils.config import get_paper_mode, set_paper_mode
 from polycli.setup import SetupWizard
+from polycli.telemetry import get_session_id, TelemetryEvent
 
 # Load existing environment variables
 load_dotenv(override=True)
@@ -31,6 +35,46 @@ risk_app = typer.Typer(help="Risk management commands")
 app.add_typer(risk_app, name="risk")
 
 console = Console()
+
+
+def get_telemetry_store():
+    """Get or create the telemetry store instance."""
+    from polycli.telemetry.store import TelemetryStore
+
+    return TelemetryStore()
+
+
+def track_command(func):
+    """Decorator to emit command_invoked telemetry events."""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            args_str = str(args) + str(kwargs)
+            args_hash = hashlib.sha256(args_str.encode()).hexdigest()[:16]
+        except Exception:
+            args_hash = "hash_error"
+
+        try:
+            store = get_telemetry_store()
+            if store.enabled:
+                event = TelemetryEvent(
+                    event_type="command_invoked",
+                    timestamp=time.time(),
+                    session_id=get_session_id(),
+                    payload={
+                        "command": func.__name__,
+                        "args_hash": args_hash,
+                        "paper_mode": get_paper_mode(),
+                    },
+                )
+                store.emit(event)
+        except Exception:
+            pass
+
+        return func(*args, **kwargs)
+
+    return wrapper
 
 
 def setup_update_commands():
@@ -405,10 +449,13 @@ def interactive_menu():
             "3. [bold magenta]Arb Scanner[/bold magenta] (/arb) - Scan for arbitrage opportunities across platforms"
         )
         console.print(
-            "4. [bold red]Logout[/bold red]      (/logout) - Remove all stored API keys"
+            "4. [bold yellow]Sentinel[/bold yellow]    (/sentinel) - Launch Sentinel market monitor"
         )
         console.print(
-            "5. [bold white]Exit[/bold white]        (/exit) - Quit the application"
+            "5. [bold red]Logout[/bold red]      (/logout) - Remove all stored API keys"
+        )
+        console.print(
+            "6. [bold white]Exit[/bold white]        (/exit) - Quit the application"
         )
 
         choice = Prompt.ask("Select an option", default="1")
@@ -422,7 +469,12 @@ def interactive_menu():
         elif choice in ["3", "/arb", "/scan"]:
             arb_scan(min_edge=0.03)
             Prompt.ask("\nPress Enter to return to menu")
-        elif choice in ["4", "/logout"]:
+        elif choice in ["4", "/sentinel", "/watch"]:
+            # Launch dashboard with Sentinel panel focused
+            console.print("[yellow]Launching Sentinel in Dashboard...[/yellow]")
+            console.print("[dim]Press 't' in Dashboard to access Sentinel panel[/dim]")
+            dashboard()
+        elif choice in ["5", "/logout"]:
             confirm = Prompt.ask(
                 "Are you sure you want to remove your API keys?",
                 choices=["y", "n"],
@@ -451,7 +503,7 @@ def interactive_menu():
                 )
                 console.print("[yellow]Exiting PolyFloat...[/yellow]")
                 sys.exit(0)
-        elif choice in ["5", "/exit", "/quit", "q"]:
+        elif choice in ["6", "/exit", "/quit", "q"]:
             console.print("Goodbye!")
             sys.exit(0)
         else:
@@ -459,6 +511,7 @@ def interactive_menu():
 
 
 @app.command("setup")
+@track_command
 def setup_wizard():
     """Run interactive setup wizard."""
     from polycli.setup import SetupWizard
@@ -636,6 +689,7 @@ from typing import Annotated
 
 
 @markets_app.command(name="list")
+@track_command
 def list_markets(
     limit: Annotated[int, typer.Option(help="Number of markets to show")] = 20,
     provider: Annotated[str, typer.Option(help="Market provider")] = "polymarket",
@@ -668,6 +722,7 @@ def list_markets(
 
 
 @markets_app.command("search")
+@track_command
 def search_markets(
     query: str = typer.Argument(..., help="Search query"),
     provider: str = typer.Option(
@@ -712,6 +767,7 @@ app.add_typer(arb_app, name="arb")
 
 
 @paper_app.command(name="status")
+@track_command
 def paper_status():
     """Show paper trading balance and P&L"""
     console.print("[bold cyan]Paper Trading Account Status[/bold cyan]")
@@ -810,6 +866,7 @@ def paper_history(
 
 
 @risk_app.command("status")
+@track_command
 def risk_status():
     """Show current risk status and metrics."""
     try:
@@ -941,6 +998,7 @@ def risk_blocked(limit: int = typer.Option(20, help="Number of entries")):
 
 
 @arb_app.command(name="scan")
+@track_command
 def arb_scan(
     min_edge: Annotated[float, typer.Option(help="Minimum edge to report")] = 0.02,
     limit: Annotated[
@@ -1054,6 +1112,7 @@ def version():
 
 
 @app.command()
+@track_command
 def dashboard():
     """Launch the TUI Dashboard"""
     from polycli.tui import DashboardApp
@@ -1088,6 +1147,7 @@ app.add_typer(analytics_app, name="analytics")
 
 
 @analytics_app.command("summary")
+@track_command
 def analytics_summary(
     days: int = typer.Option(30, help="Number of days to analyze"),
     provider: str = typer.Option("polymarket", help="Provider to analyze"),
@@ -1147,6 +1207,7 @@ def analytics_export(
 
 
 @app.command("stop")
+@track_command
 def emergency_stop(
     cancel_orders: bool = typer.Option(True, help="Cancel all pending orders"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
@@ -1210,6 +1271,38 @@ def system_status():
             console.print(f"  Description: {event.description}")
     else:
         console.print("[green]System running normally[/green]")
+
+
+@app.command()
+def stats(
+    days: int = typer.Option(7, help="Number of days to analyze"),
+    command: str = typer.Option(
+        "summary", help="summary|funnel|errors|recent|sessions"
+    ),
+):
+    """View usage telemetry and statistics."""
+    from polycli.telemetry.store import TelemetryStore
+    from polycli.telemetry.formatters import (
+        _show_summary,
+        _show_funnel,
+        _show_errors,
+        _show_recent,
+        _show_sessions,
+    )
+
+    since = time.time() - (days * 86400)
+    store = TelemetryStore()
+
+    if command == "summary":
+        _show_summary(store, since)
+    elif command == "funnel":
+        _show_funnel(store, since)
+    elif command == "errors":
+        _show_errors(store, since)
+    elif command == "recent":
+        _show_recent(store, 20)
+    elif command == "sessions":
+        _show_sessions(store, since)
 
 
 if __name__ == "__main__":

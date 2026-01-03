@@ -9,12 +9,13 @@ from .models import (
     PaperOrderStatus, PaperOrderSide
 )
 from .store import PaperTradingStore
+from ..providers.base import BaseProvider
 from ..providers.polymarket import PolyProvider
 
 logger = structlog.get_logger()
 
 
-class PaperTradingProvider:
+class PaperTradingProvider(BaseProvider):
     """
     Simulates trading operations using real market data.
     
@@ -350,3 +351,58 @@ class PaperTradingProvider:
     async def get_orderbook(self, token_id: str):
         """Proxy to real provider for orderbook."""
         return await self.real_provider.get_orderbook(token_id)
+
+    async def get_prices_history(
+        self,
+        token_id: str,
+        interval: str = "1d",
+        fidelity: int = 60
+    ):
+        """Proxy to real provider for historical price data."""
+        return await self.real_provider.get_prices_history(
+            token_id=token_id,
+            interval=interval,
+            fidelity=fidelity
+        )
+
+    async def search(self, query: str):
+        """Proxy to real provider for market search."""
+        return await self.real_provider.search(query)
+
+    async def get_events(self, category: Optional[str] = None, limit: int = 100):
+        """Proxy to real provider for events."""
+        return await self.real_provider.get_events(category=category, limit=limit)
+
+    async def get_news(self, query: Optional[str] = None, limit: int = 10):
+        """Proxy to real provider for news."""
+        return await self.real_provider.get_news(query=query, limit=limit)
+
+    async def get_history(self, market_id: Optional[str] = None):
+        """Proxy to real provider for trade history."""
+        # Note: BaseProvider.get_history refers to trade history
+        # Polymarket implementation returns user trades.
+        # For paper trading, we might want to return paper trades or real ones?
+        # Usually TUI uses this for 'Trade History' view.
+        # Re-using the real provider's get_history for now if it doesn't crash.
+        return await self.real_provider.get_history(market_id=market_id)
+
+    async def place_order(
+        self,
+        market_id: str,
+        side: Any,
+        size: float,
+        price: float,
+        order_type: Any = None
+    ):
+        """
+        Implementation of BaseProvider.place_order.
+        Proxies to place_market_order for now or simulates limit order.
+        """
+        # For now, we simulate as market order if it's paper trading.
+        # Or we could implement limit orders in PaperTradingStore.
+        return await self.place_market_order(market_id, str(side), size, market_id=market_id)
+
+    async def cancel_order(self, order_id: str) -> bool:
+        """Cancel an order (simulated)."""
+        # Paper trading currently fill-or-kill, but we should satisfy interface.
+        return True

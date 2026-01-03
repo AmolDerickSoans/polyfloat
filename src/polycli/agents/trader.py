@@ -7,6 +7,8 @@ from polycli.agents.base import BaseAgent
 from polycli.agents.state import Task
 from polycli.agents.executor import ExecutorAgent
 from polycli.agents.tools.trading import TradingTools
+from polycli.telemetry import TelemetryEvent, get_session_id
+from polycli.telemetry.store import TelemetryStore
 
 logger = structlog.get_logger()
 
@@ -190,6 +192,15 @@ class TraderAgent(BaseAgent):
             # 7. Format and propose/execute
             # In our TUI, we'll usually return this for user approval
             execution_data = self._extract_execution_data(best_trade, market)
+
+            self._emit_proposal_event(
+                agent_id=self.agent_id,
+                strategy="one_best_trade",
+                market_id=market[0].metadata.get("id", ""),
+                risk_context_status=self._get_risk_status(risk_context_str),
+                news_context_used=bool(news_context),
+            )
+
             return {
                 "success": True,
                 "strategy": "one_best_trade",
@@ -241,3 +252,49 @@ class TraderAgent(BaseAgent):
             "provider": "polymarket",
             "generated_at": time.time(),
         }
+
+    def _emit_proposal_event(
+        self,
+        agent_id: str,
+        strategy: str,
+        market_id: str,
+        risk_context_status: str,
+        news_context_used: bool,
+    ) -> None:
+        """Emit agent_proposal_created telemetry event."""
+        try:
+            store = TelemetryStore()
+            if store.enabled:
+                event = TelemetryEvent(
+                    event_type="agent_proposal_created",
+                    timestamp=time.time(),
+                    session_id=get_session_id(),
+                    payload={
+                        "agent_id": agent_id,
+                        "strategy": strategy,
+                        "market_id": market_id[:20] + "..."
+                        if len(market_id) > 20
+                        else market_id,
+                        "risk_context_status": risk_context_status,
+                        "news_context_used": news_context_used,
+                    },
+                )
+                store.emit(event)
+        except Exception:
+            pass
+
+    def _get_risk_status(self, risk_context_str: str) -> str:
+        """Determine risk status from risk context string."""
+        if not risk_context_str:
+            return "unknown"
+        if "circuit_breaker_active: True" in risk_context_str:
+            return "circuit_breaker_active"
+        if "trading_enabled: False" in risk_context_str:
+            return "trading_disabled"
+        if "GREEN" in risk_context_str:
+            return "green"
+        if "YELLOW" in risk_context_str:
+            return "yellow"
+        if "RED" in risk_context_str:
+            return "red"
+        return "unknown"

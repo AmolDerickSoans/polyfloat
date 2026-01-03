@@ -1,4 +1,4 @@
-"""Trading tools for agent use - wallet balance, order placement, trade history"""
+""" use - wallet balanceTrading tools for agent, order placement, trade history"""
 
 import asyncio
 import time
@@ -9,6 +9,9 @@ from polycli.providers.polymarket import PolyProvider
 from polycli.providers.kalshi import KalshiProvider
 from polycli.risk import RiskGuard
 from polycli.risk.store import RiskAuditStore
+from polycli.telemetry import TelemetryEvent, get_session_id
+from polycli.telemetry.store import TelemetryStore
+from polycli.utils.config import get_paper_mode
 
 logger = structlog.get_logger()
 
@@ -269,6 +272,19 @@ class TradingTools:
                 )
 
             self._outcome_logger.log_success(order.id, amount)
+            self._emit_trade_executed_event(
+                provider=provider,
+                side="BUY",
+                amount=amount,
+                order_id=order.id,
+                latency_ms=int(
+                    ((time.perf_counter() - self._outcome_logger._start_time) * 1000)
+                    if self._outcome_logger._start_time
+                    else 0
+                ),
+                agent_initiated=bool(agent_id),
+                paper_mode=get_paper_mode(),
+            )
             return {
                 "success": True,
                 "order_id": order.id,
@@ -336,6 +352,13 @@ class TradingTools:
                 error_codes = [
                     v.error_code.value for v in risk_result.violations if v.error_code
                 ]
+                self._emit_trade_failed_event(
+                    provider=provider,
+                    failure_stage="risk_check",
+                    error_codes=error_codes,
+                    agent_initiated=bool(agent_id),
+                    paper_mode=get_paper_mode(),
+                )
                 suggested_fixes = {
                     v.error_code.value: v.suggested_value
                     for v in risk_result.violations
@@ -357,6 +380,19 @@ class TradingTools:
                 )
 
             self._outcome_logger.log_success(order.id, shares)
+            self._emit_trade_executed_event(
+                provider=provider,
+                side="SELL",
+                amount=shares,
+                order_id=order.id,
+                latency_ms=int(
+                    ((time.perf_counter() - self._outcome_logger._start_time) * 1000)
+                    if self._outcome_logger._start_time
+                    else 0
+                ),
+                agent_initiated=bool(agent_id),
+                paper_mode=get_paper_mode(),
+            )
             return {
                 "success": True,
                 "order_id": order.id,
@@ -479,6 +515,66 @@ class TradingTools:
         except Exception as e:
             logger.error("Failed to get positions", provider=provider, error=str(e))
             return {"success": False, "error": str(e)}
+
+    def _emit_trade_executed_event(
+        self,
+        provider: str,
+        side: str,
+        amount: float,
+        order_id: str,
+        latency_ms: int,
+        agent_initiated: bool,
+        paper_mode: bool,
+    ) -> None:
+        """Emit trade_executed telemetry event."""
+        try:
+            store = TelemetryStore()
+            if store.enabled:
+                event = TelemetryEvent(
+                    event_type="trade_executed",
+                    timestamp=time.time(),
+                    session_id=get_session_id(),
+                    payload={
+                        "provider": provider,
+                        "side": side,
+                        "amount": amount,
+                        "order_id": order_id[:8] if order_id else "",
+                        "latency_ms": latency_ms,
+                        "agent_initiated": agent_initiated,
+                        "paper_mode": paper_mode,
+                    },
+                )
+                store.emit(event)
+        except Exception:
+            pass
+
+    def _emit_trade_failed_event(
+        self,
+        provider: str,
+        failure_stage: str,
+        error_codes: List[str],
+        agent_initiated: bool,
+        paper_mode: bool,
+    ) -> None:
+        """Emit trade_failed telemetry event."""
+        try:
+            store = TelemetryStore()
+            if store.enabled:
+                event = TelemetryEvent(
+                    event_type="trade_failed",
+                    timestamp=time.time(),
+                    session_id=get_session_id(),
+                    payload={
+                        "provider": provider,
+                        "failure_stage": failure_stage,
+                        "error_codes": error_codes,
+                        "agent_initiated": agent_initiated,
+                        "paper_mode": paper_mode,
+                    },
+                )
+                store.emit(event)
+        except Exception:
+            pass
 
 
 def register_trading_tools(
