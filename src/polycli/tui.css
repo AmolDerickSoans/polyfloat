@@ -280,3 +280,48 @@ FullScreenNewsFeed {
     color: $error;
     text-style: bold;
 }
+/* Risk Violation Modal Styles */
+#risk_modal {
+    align: center middle;
+    width: 50;
+    height: auto;
+    max-height: 30;
+    background: $surface;
+    border: heavy $error;
+    padding: 1 2;
+}
+
+#risk_modal #title {
+    text-align: center;
+    color: $error;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#risk_modal #error_msg {
+    color: $warning;
+    margin-bottom: 1;
+}
+
+#risk_modal #violations_label {
+    text-style: bold;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+#risk_modal .violations_container {
+    background: #161b22;
+    padding: 1;
+    margin-bottom: 1;
+    max-height: 12;
+    overflow-y: auto;
+}
+
+#risk_modal #spacer {
+    height: 1;
+}
+
+#risk_modal #btn_row {
+    align: center;
+    height: auto;
+}

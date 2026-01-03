@@ -1,3 +1,7 @@
+"""DEPRECATED: Legacy LangGraph graph factory quarantined on 2026-01-03.
+This file contained placeholder trading logic that used random.random() for risk scores.
+Use TradingTools for execution instead.
+"""
 from langgraph.graph import StateGraph, END
 from polycli.agents.state import TradingState
 from polycli.agents.nodes import trader_node, risk_node, arb_observer_node, arb_planner_node

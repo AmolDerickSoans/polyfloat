@@ -63,6 +63,7 @@ from polycli.emergency import EmergencyStopController, StopReason
 import structlog
 from polycli.analytics.widget import PerformanceDashboardWidget
 from polycli.analytics.calculator import PerformanceCalculator
+from polycli.agents.tools.trading import TradingTools
 
 logger = structlog.get_logger()
 
@@ -77,7 +78,11 @@ class NewsTicker(Static):
         self.news_items: List[Dict[str, Any]] = []
         self.current_index = 0
         self._fallback_items = [
-            {"content": "Connecting to news service...", "impact_score": 50, "source": "system"},
+            {
+                "content": "Connecting to news service...",
+                "impact_score": 50,
+                "source": "system",
+            },
         ]
 
     def on_mount(self) -> None:
@@ -119,7 +124,7 @@ class NewsTicker(Static):
         self.news_items.insert(0, news_data)
         # Trim to max items
         if len(self.news_items) > self.MAX_ITEMS:
-            self.news_items = self.news_items[:self.MAX_ITEMS]
+            self.news_items = self.news_items[: self.MAX_ITEMS]
         # Reset index to show new item immediately
         self.current_index = 0
         self._render_item(news_data)
@@ -127,75 +132,77 @@ class NewsTicker(Static):
     def set_unavailable(self) -> None:
         """Show unavailable message when news API is down"""
         self._fallback_items = [
-            {"content": "News service unavailable - running offline", "impact_score": 30, "source": "system"},
+            {
+                "content": "News service unavailable - running offline",
+                "impact_score": 30,
+                "source": "system",
+            },
         ]
-
-
 
 
 class PaperModeIndicator(Static):
     """Visual indicator for paper trading mode"""
-    
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._update_display()
-    
+
     def _update_display(self) -> None:
         if get_paper_mode():
             self.update(
                 Panel(
                     "[bold yellow]PAPER TRADING MODE[/bold yellow]\n[dim]No real money at risk[/dim]",
                     border_style="yellow",
-                    padding=(0, 2)
+                    padding=(0, 2),
                 )
             )
         else:
             self.update("")
-    
+
     def render(self) -> RenderableType:
         if get_paper_mode():
             return Panel(
                 "[bold yellow]PAPER TRADING MODE[/bold yellow]\n[dim]No real money at risk[/dim]",
                 border_style="yellow",
-                padding=(0, 2)
+                padding=(0, 2),
             )
         return ""
 
 
 class WalletStatus(Static):
     """Display wallet balance and trading status"""
-    
+
     balance: reactive[str] = reactive("Loading...")
-    
+
     def __init__(self, poly_provider: PolyProvider, **kwargs):
         super().__init__(**kwargs)
         self.poly_provider = poly_provider
-    
+
     def render(self) -> RenderableType:
         is_paper = get_paper_mode()
         table = Table(show_header=False, expand=True, box=None, padding=(0, 1))
         table.add_column("Label", style="dim", width=12)
         table.add_column("Value", style="bold white")
-        
+
         balance_label = "Balance (Paper)" if is_paper else "USDC Balance"
         table.add_row(balance_label, self.balance)
-        
+
         title = "Paper Wallet" if is_paper else "Wallet"
         border_style = "yellow" if is_paper else "green"
-        
+
         return Panel(table, title=title, border_style=border_style, height=4)
-    
+
     def on_mount(self) -> None:
         """Start balance refresh loop"""
         self._start_balance_refresh()
-    
+
     @work
     async def _start_balance_refresh(self) -> None:
         """Periodically refresh balance"""
         while True:
             await self._update_balance()
             await asyncio.sleep(30)
-    
+
     async def _update_balance(self) -> None:
         """Fetch and update balance"""
         try:
@@ -245,9 +252,35 @@ class QuickOrderModal(ModalScreen):
         self.dismiss(None)
 
 
+class RiskViolationModal(ModalScreen):
+    """Modal to display risk violations when a trade is blocked."""
+
+    def __init__(self, violations: List[str], error: str, **kwargs):
+        super().__init__(**kwargs)
+        self.violations = violations
+        self.error = error
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="risk_modal"):
+            yield Label("[bold red]TRADE BLOCKED BY RISK GUARD[/bold red]", id="title")
+            yield Label(f"Reason: {self.error}", id="error_msg")
+            yield Label("Violations:", id="violations_label")
+            with Vertical(id="violations_list", classes="violations_container"):
+                for i, violation in enumerate(self.violations):
+                    yield Label(f"• {violation}", id=f"violation_{i}")
+            yield Label("", id="spacer")
+            with Horizontal(id="btn_row"):
+                yield Button("OK", variant="error", id="dismiss")
+
+    @on(Button.Pressed, "#dismiss")
+    def dismiss_btn(self) -> None:
+        self.dismiss()
+
+
 class OrderbookDepth(Static):
     """Widget to display orderbook depth"""
 
+    snapshot: reactive[Optional[OrderBook]] = reactive(None)
     snapshot: reactive[Optional[OrderBook]] = reactive(None)
 
     def render(self) -> RenderableType:
@@ -685,7 +718,7 @@ class MarketDetail(Vertical):
                         self.app.poly.get_prices_history(
                             token_id=token_ids[0],
                             interval=iv,
-                            fidelity=fidelity_map[iv]
+                            fidelity=fidelity_map[iv],
                         )
                         for iv in intervals
                     ]
@@ -697,43 +730,56 @@ class MarketDetail(Vertical):
                             self.app.poly.get_prices_history(
                                 token_id=token_ids[1],
                                 interval=iv,
-                                fidelity=fidelity_map[iv]
+                                fidelity=fidelity_map[iv],
                             )
                             for iv in intervals
                         ]
 
                     # Fetch all in parallel
                     import asyncio
+
                     all_tasks = yes_tasks + no_tasks
                     results = await asyncio.gather(*all_tasks, return_exceptions=True)
 
-                    yes_results = results[:len(intervals)]
-                    no_results = results[len(intervals):] if no_tasks else []
+                    yes_results = results[: len(intervals)]
+                    no_results = results[len(intervals) :] if no_tasks else []
 
                     # Build interval data structure
                     interval_data = {}
                     total_points = 0
 
                     for i, iv in enumerate(intervals):
-                        yes_points = yes_results[i] if not isinstance(yes_results[i], Exception) else []
-                        no_points = no_results[i] if no_results and not isinstance(no_results[i], Exception) else []
+                        yes_points = (
+                            yes_results[i]
+                            if not isinstance(yes_results[i], Exception)
+                            else []
+                        )
+                        no_points = (
+                            no_results[i]
+                            if no_results and not isinstance(no_results[i], Exception)
+                            else []
+                        )
 
                         traces = []
                         if yes_points:
-                            traces.append({
-                                "x": [p.t for p in yes_points],
-                                "y": [p.p for p in yes_points],
-                                "name": "Yes",
-                                "color": "#2ecc71"
-                            })
+                            traces.append(
+                                {
+                                    "x": [p.t for p in yes_points],
+                                    "y": [p.p for p in yes_points],
+                                    "name": "Yes",
+                                    "color": "#2ecc71",
+                                }
+                            )
                             total_points += len(yes_points)
                         if no_points:
-                            traces.append({
-                                "x": [p.t for p in no_points],
-                                "y": [p.p for p in no_points],
-                                "name": "No",
-                                "color": "#e74c3c"
-                            })
+                            traces.append(
+                                {
+                                    "x": [p.t for p in no_points],
+                                    "y": [p.p for p in no_points],
+                                    "name": "No",
+                                    "color": "#e74c3c",
+                                }
+                            )
 
                         if traces:
                             interval_data[iv] = {"traces": traces}
@@ -759,12 +805,14 @@ class MarketDetail(Vertical):
                             title=market.question,
                             interval_data=interval_data,
                             default_interval="1d",
-                            metadata=metadata
+                            metadata=metadata,
                         )
                     else:
                         self.app.notify("⚠ No chart data available", severity="warning")
                 else:
-                    self.app.notify("⚠ No token ID available for chart", severity="warning")
+                    self.app.notify(
+                        "⚠ No token ID available for chart", severity="warning"
+                    )
 
             # Update title to show success
             self.query_one("#detail_title", Label).update(f"📊 {market.question}")
@@ -890,7 +938,7 @@ class PortfolioView(Container):
 
 class TradeHistoryView(Screen):
     """Trade history and order tracking"""
-    
+
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Label("TRADE HISTORY", classes="p_title")
@@ -900,18 +948,18 @@ class TradeHistoryView(Screen):
             with Horizontal(id="h_controls"):
                 yield Button("Refresh", id="h_refresh")
                 yield Button("Export CSV", id="h_export")
-    
+
     def on_mount(self) -> None:
         # Setup trades table
         self.query_one("#trades_table", DataTable).add_columns(
             "Time", "Market", "Side", "Price", "Size", "Total", "Prov"
         )
-        # Setup order history table  
+        # Setup order history table
         self.query_one("#order_history_table", DataTable).add_columns(
             "Time", "ID", "Market", "Side", "Price", "Size", "Status", "Prov"
         )
         self.load_history()
-    
+
     @work(exclusive=True)
     async def load_history(self) -> None:
         """Load trade and order history from providers"""
@@ -919,69 +967,89 @@ class TradeHistoryView(Screen):
             # Fetch trades from both providers
             poly_trades = await self.app.poly.get_trades()
             kalshi_trades = await self.app.kalshi.get_trades()
-            
+
             # Fetch order history (using get_orders for now)
             poly_orders = await self.app.poly.get_orders()
             kalshi_orders = await self.app.kalshi.get_orders()
-            
+
             # Populate trades table
             trades_table = self.query_one("#trades_table", DataTable)
             trades_table.clear()
-            
+
             all_trades = poly_trades + kalshi_trades
             # Sort by timestamp (newest first)
             all_trades.sort(key=lambda t: t.timestamp, reverse=True)
-            
+
             for trade in all_trades[:100]:  # Show last 100 trades
                 from datetime import datetime
-                time_str = datetime.fromtimestamp(trade.timestamp).strftime("%m-%d %H:%M") if trade.timestamp else "N/A"
+
+                time_str = (
+                    datetime.fromtimestamp(trade.timestamp).strftime("%m-%d %H:%M")
+                    if trade.timestamp
+                    else "N/A"
+                )
                 total = trade.price * trade.size
-                provider = "P" if hasattr(self.app.poly, 'client') else "K"
-                
+                provider = "P" if hasattr(self.app.poly, "client") else "K"
+
                 trades_table.add_row(
                     time_str,
                     trade.market_id[:20],
-                    f"[green]{trade.side.value}[/]" if trade.side == Side.BUY else f"[red]{trade.side.value}[/]",
+                    f"[green]{trade.side.value}[/]"
+                    if trade.side == Side.BUY
+                    else f"[red]{trade.side.value}[/]",
                     f"${trade.price:.3f}",
                     f"{trade.size:.2f}",
                     f"${total:.2f}",
-                    provider
+                    provider,
                 )
-            
+
             # Populate order history table
             orders_table = self.query_one("#order_history_table", DataTable)
             orders_table.clear()
-            
+
             all_orders = poly_orders + kalshi_orders
             # Sort by most recent
             for order in all_orders[:100]:
                 from datetime import datetime
-                time_str = datetime.fromtimestamp(order.timestamp).strftime("%m-%d %H:%M") if order.timestamp else "N/A"
+
+                time_str = (
+                    datetime.fromtimestamp(order.timestamp).strftime("%m-%d %H:%M")
+                    if order.timestamp
+                    else "N/A"
+                )
                 provider = "P" if order.market_id.startswith("0x") else "K"
-                
-                status_color = "green" if order.status == OrderStatus.FILLED else "yellow" if order.status == OrderStatus.OPEN else "dim"
-                
+
+                status_color = (
+                    "green"
+                    if order.status == OrderStatus.FILLED
+                    else "yellow"
+                    if order.status == OrderStatus.OPEN
+                    else "dim"
+                )
+
                 orders_table.add_row(
                     time_str,
                     order.id[:12],
                     order.market_id[:20],
-                    f"[green]{order.side.value}[/]" if order.side == Side.BUY else f"[red]{order.side.value}[/]",
+                    f"[green]{order.side.value}[/]"
+                    if order.side == Side.BUY
+                    else f"[red]{order.side.value}[/]",
                     f"${order.price:.3f}",
                     f"{order.size:.2f}",
                     f"[{status_color}]{order.status.value}[/]",
-                    provider
+                    provider,
                 )
-                
+
         except Exception as e:
             logger.error("Failed to load trade history", error=str(e))
             self.app.notify(f"History load error: {str(e)}", severity="error")
-    
+
     @on(Button.Pressed, "#h_refresh")
     def refresh_history(self) -> None:
         """Refresh history data"""
         self.load_history()
         self.app.notify("Refreshing history...", severity="information")
-    
+
     @on(Button.Pressed, "#h_export")
     def export_csv(self) -> None:
         """Export trade history to CSV"""
@@ -994,7 +1062,7 @@ class DashboardApp(App):
     markets_cache: Dict[str, Market] = {}
     watchlist: Set[str] = set()
     selected_provider: reactive[str] = reactive("polymarket")
-    agent_mode: reactive[str] = reactive("manual") # manual, auto-approval, full-auto
+    agent_mode: reactive[str] = reactive("manual")  # manual, auto-approval, full-auto
 
     CSS_PATH = "tui.css"
     BINDINGS = [
@@ -1019,43 +1087,44 @@ class DashboardApp(App):
         super().__init__(**kwargs)
         self.redis_store = RedisStore(prefix="polycli:")
         self.sqlite_store = SQLiteStore(":memory:")
-        
+
         # Initialize providers
         real_poly = PolyProvider()
         if get_paper_mode():
             from polycli.paper.provider import PaperTradingProvider
+
             self.poly = PaperTradingProvider(real_poly)
             # Ensure paper provider is initialized (sync wrapper or await later)
-            # Since __init__ is sync, we can't await. 
-            # PaperTradingProvider initializes lazily or via explicit init. 
+            # Since __init__ is sync, we can't await.
+            # PaperTradingProvider initializes lazily or via explicit init.
             # We'll let it init lazily or in on_mount.
         else:
             self.poly = real_poly
-            
+
         self.kalshi = KalshiProvider()
-        
+
         # News clients (polyfloat-news integration) - initialized first for agent access
         self.news_ws_client = NewsWebSocketClient()
         self.news_api_client = NewsAPIClient()
         self.news_available = False  # Set to True when connected
-        
+
         # News alert manager for real-time notifications (Phase 6)
         # Note: ws_client callback is added later, alert callback registered in on_mount
         self.news_alert_manager = NewsAlertManager(
             ws_client=None,  # Connect later to avoid timing issues
-            api_client=self.news_api_client
+            api_client=self.news_api_client,
         )
         self.news_alert_manager.add_config(DEFAULT_TERMINAL_CONFIG)
 
         # Determine initial provider for supervisor
-        initial_prov = self.poly # Default
-        
+        initial_prov = self.poly  # Default
+
         # Initialize supervisor with news client for agent context injection
         self.supervisor = SupervisorAgent(
-            redis_store=self.redis_store, 
+            redis_store=self.redis_store,
             sqlite_store=self.sqlite_store,
             provider=initial_prov,
-            news_api_client=self.news_api_client
+            news_api_client=self.news_api_client,
         )
         self.ws_client = PolymarketWebSocket()
         self.kalshi_ws = KalshiWebSocket()
@@ -1063,8 +1132,10 @@ class DashboardApp(App):
 
         self._emergency_controller = EmergencyStopController(
             cancel_orders_fn=self._cancel_all_orders,
-            close_websockets_fn=self._close_all_websockets
+            close_websockets_fn=self._close_all_websockets,
         )
+
+        self.trading_tools = TradingTools(self.poly, self.kalshi)
 
     def action_cycle_agent_mode(self) -> None:
         modes = ["manual", "auto-approval", "full-auto"]
@@ -1082,15 +1153,23 @@ class DashboardApp(App):
         try:
             # Format alert message
             formatted = self.news_alert_manager.format_alert(alert)
-            
+
             # Show notification based on priority
             if alert.priority.value == "breaking":
-                self.notify(f"[red]{formatted}[/red]", title="🔴 BREAKING NEWS", severity="error")
+                self.notify(
+                    f"[red]{formatted}[/red]",
+                    title="🔴 BREAKING NEWS",
+                    severity="error",
+                )
             elif alert.priority.value == "high":
-                self.notify(f"[yellow]{formatted}[/yellow]", title="🟡 HIGH IMPACT", severity="warning")
+                self.notify(
+                    f"[yellow]{formatted}[/yellow]",
+                    title="🟡 HIGH IMPACT",
+                    severity="warning",
+                )
             else:
                 self.notify(formatted, title="📰 News Alert", severity="information")
-            
+
             logger.debug("News alert displayed", priority=alert.priority.value)
         except Exception as e:
             logger.error("Failed to display news alert", error=str(e))
@@ -1105,7 +1184,9 @@ class DashboardApp(App):
         # Register news alert callback (done here to ensure method exists)
         self.news_alert_manager.add_callback(self._on_news_alert)
         # Connect WebSocket to alert manager
-        self.news_ws_client.add_callback("news_item", self.news_alert_manager._on_news_item)
+        self.news_ws_client.add_callback(
+            "news_item", self.news_alert_manager._on_news_item
+        )
 
         # Connect to news service (graceful fallback if unavailable)
         asyncio.create_task(self._connect_news_service())
@@ -1123,8 +1204,7 @@ class DashboardApp(App):
 
             # Connect with timeout
             await asyncio.wait_for(
-                self.news_ws_client.connect(user_id="terminal_user"),
-                timeout=5.0
+                self.news_ws_client.connect(user_id="terminal_user"), timeout=5.0
             )
             self.news_available = True
             logger.info("News service connected")
@@ -1187,13 +1267,16 @@ class DashboardApp(App):
             try:
                 if self.agent_mode in ["auto-approval", "full-auto"]:
                     import structlog
+
                     logger = structlog.get_logger()
                     logger.info("Background Loop: Ticking TraderAgent")
-                    
+
                     # Run the ONE_BEST_TRADE strategy
                     # Using route_command so it publishes to TUI
-                    await self.supervisor.route_command("AUTO_TICK", {"input": "Find the best trade"})
-                
+                    await self.supervisor.route_command(
+                        "AUTO_TICK", {"input": "Find the best trade"}
+                    )
+
                 # Sleep for 5 minutes between ticks
                 await asyncio.sleep(300)
             except Exception as e:
@@ -1219,17 +1302,17 @@ class DashboardApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        
+
         if get_paper_mode():
             yield PaperModeIndicator(id="paper_mode_indicator")
-        
+
         yield NewsTicker(id="news_ticker")
-        
+
         # Initialize calculator with callbacks
         self.calculator = PerformanceCalculator(
             get_balance_fn=self._get_balance,
             get_positions_fn=self._get_positions,
-            get_price_fn=self._get_price
+            get_price_fn=self._get_price,
         )
 
         with Horizontal():
@@ -1251,7 +1334,7 @@ class DashboardApp(App):
 
                 yield Label("Wallet", classes="section_title")
                 yield WalletStatus(poly_provider=self.poly, id="wallet_status")
-                
+
                 yield Label("Market List", classes="section_title")
                 yield DataTable(id="market_list")
 
@@ -1270,12 +1353,12 @@ class DashboardApp(App):
                         yield MarketDetail(id="market_focus", classes="market-detail")
                         # News Panel (30% of right column)
                         yield NewsPanel(id="news_panel", classes="news-panel")
-                    yield PerformanceDashboardWidget(calculator=self.calculator, id="analytics")
+                    yield PerformanceDashboardWidget(
+                        calculator=self.calculator, id="analytics"
+                    )
                     yield PortfolioView(id="portfolio")
 
         yield Footer()
-
-
 
     @work(exclusive=True)
     async def update_markets(self) -> None:
@@ -1364,7 +1447,9 @@ class DashboardApp(App):
     async def action_show_analytics(self) -> None:
         self.query_one("#switcher").current = "analytics"
         try:
-            await self.query_one("#analytics", PerformanceDashboardWidget).refresh_data()
+            await self.query_one(
+                "#analytics", PerformanceDashboardWidget
+            ).refresh_data()
         except Exception:
             pass
 
@@ -1402,85 +1487,95 @@ class DashboardApp(App):
             m = self.query_one("#market_focus", MarketDetail).market
             if not m:
                 return
+
+            if m.provider == "kalshi":
+                self.notify(
+                    "Kalshi manual trading not yet supported. Use Polymarket or agent trading.",
+                    severity="warning"
+                )
+                return
+
+            side = order_data["side"]
+            amount = order_data["amount"]
+
+            extra = m.metadata or {}
+            ctids = extra.get("clobTokenIds", [])
+            if isinstance(ctids, str):
+                import json
+                ctids = json.loads(ctids)
+
+            if not ctids:
+                self.notify("No token ID found for this market", severity="error")
+                return
+
+            token_id = ctids[0]
+
             try:
-                prov = self.kalshi if m.provider == "kalshi" else self.poly
-                side = order_data["side"]
-                amount = order_data["amount"]
-                
-                # Check balance before placing order (for Polymarket only, for now)
-                if m.provider == "polymarket" and side == Side.BUY:
-                    balance_info = await self.poly.get_balance()
-                    if "error" not in balance_info:
-                        balance = float(balance_info.get("balance", 0))
-                        if amount > balance:
-                            self.notify(
-                                f"Insufficient balance! Have: ${balance:.2f}, Need: ${amount:.2f}",
-                                severity="error"
-                            )
-                            return
-                    else:
-                        self.notify("Warning: Could not verify balance", severity="warning")
-                
-                # Use market order for Polymarket
-                if m.provider == "polymarket":
-                    # Get token ID from market metadata
-                    extra = m.metadata or {}
-                    ctids = extra.get("clobTokenIds", [])
-                    if isinstance(ctids, str):
-                        import json
-                        ctids = json.loads(ctids)
-                    
-                    if not ctids:
-                        self.notify("No token ID found for this market", severity="error")
-                        return
-                    
-                    token_id = ctids[0]  # Use YES token
-                    res = await self.poly.place_market_order(
+                if side == Side.BUY:
+                    res = await self.trading_tools.place_market_buy(
                         token_id=token_id,
-                        side=side,
-                        amount=amount
+                        amount=amount,
+                        provider="polymarket",
+                        agent_id="manual_user",
+                        agent_reasoning="Manual trade via TUI"
                     )
-                    self.notify(f"Market Order Executed: {res.id[:8]}")
                 else:
-                    # Kalshi - use regular limit order
-                    res = await prov.place_order(
-                        market_id=m.id,
-                        side=side,
-                        size=amount,
-                        price=0.50,  # TODO: Get from orderbook
+                    res = await self.trading_tools.place_market_sell(
+                        token_id=token_id,
+                        shares=amount,
+                        provider="polymarket",
+                        agent_id="manual_user",
+                        agent_reasoning="Manual trade via TUI"
                     )
-                    self.notify(f"Order Sent: {res.id[:8]}")
-                
-                # Refresh wallet balance
+
+                if not res.get("success"):
+                    violations = res.get("violations", [])
+                    self.notify(f"Trade blocked: {res.get('error')}", severity="error")
+                    if violations:
+                        self.push_screen(RiskViolationModal(violations, res.get("error", "Risk check failed")))
+                    return
+
+                self.notify(f"Market Order Executed: {res.get('order_id', 'unknown')[:8]}")
+
                 try:
                     wallet_status = self.query_one("#wallet_status", WalletStatus)
                     await wallet_status._update_balance()
                 except Exception:
                     pass
-                    
+
             except Exception as e:
                 logger.error("Order placement failed", error=str(e))
                 self.notify(f"Order Fail: {str(e)[:50]}", severity="error")
 
+
     async def action_emergency_stop(self) -> None:
-        confirmed = await self.push_screen(EmergencyStopConfirmScreen(), wait_for_dismiss=True)
+        confirmed = await self.push_screen(
+            EmergencyStopConfirmScreen(), wait_for_dismiss=True
+        )
 
         if confirmed:
-            event = await self._emergency_controller.trigger_stop(reason=StopReason.USER_INITIATED, description="User triggered emergency stop via TUI")
+            event = await self._emergency_controller.trigger_stop(
+                reason=StopReason.USER_INITIATED,
+                description="User triggered emergency stop via TUI",
+            )
 
-            self.notify(f"EMERGENCY STOP ACTIVATED\nOrders cancelled: {event.orders_cancelled}\nWebSockets closed: {event.websockets_closed}", severity="error")
+            self.notify(
+                f"EMERGENCY STOP ACTIVATED\nOrders cancelled: {event.orders_cancelled}\nWebSockets closed: {event.websockets_closed}",
+                severity="error",
+            )
 
     async def _cancel_all_orders(self) -> int:
         from polycli.emergency.order_canceller import OrderCanceller
+
         canceller = OrderCanceller(self.poly, self.kalshi)
         return await canceller.cancel_all_orders()
 
     async def _close_all_websockets(self) -> int:
         closed = 0
-        if hasattr(self, '_poly_ws') and self._poly_ws is not None:
+        if hasattr(self, "_poly_ws") and self._poly_ws is not None:
             await self._poly_ws.close()
             closed += 1
-        if hasattr(self, '_kalshi_ws') and self._kalshi_ws is not None:
+        if hasattr(self, "_kalshi_ws") and self._kalshi_ws is not None:
             await self._kalshi_ws.close()
             closed += 1
         return closed
@@ -1508,7 +1603,7 @@ class EmergencyStopConfirmScreen(ModalScreen):
                 "- Cancel all pending orders\n"
                 "- Close all WebSocket connections\n\n"
                 "Are you sure?",
-                id="message"
+                id="message",
             )
             with Horizontal():
                 yield Button("Yes, STOP [Y]", variant="error", id="confirm")

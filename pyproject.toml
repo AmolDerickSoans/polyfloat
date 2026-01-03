@@ -1,13 +1,25 @@
 [tool.poetry]
 name = "polyfloat"
 version = "0.1.0"
-description = "Agentic CLI/TUI terminal for Polymarket and Kalshi"
-authors = ["PolyCLI Team"]
+description = "Agentic CLI/TUI terminal for Polymarket and Kalshi prediction markets"
+authors = ["PolyCLI Team <amol@polycli.dev>"]
 license = "MIT"
 readme = "README.md"
 homepage = "https://docs.polycli.dev"
-repository = "https://github.com/polycli/polycli"
-keywords = ["polymarket", "kalshi", "prediction-markets", "trading", "cli", "langgraph"]
+repository = "https://github.com/AmolDerickSoans/polyfloat"
+documentation = "https://docs.polycli.dev"
+keywords = ["polymarket", "kalshi", "prediction-markets", "trading", "cli", "langgraph", "gemini"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 packages = [{include = "polycli", from = "src"}]
 
 [tool.poetry.dependencies]
@@ -42,6 +54,7 @@ black = "^24.10.0"
 mypy = "^1.13.0"
 ruff = "^0.8.0"
 pre-commit = "^4.0.0"
+hypothesis = "^6.100.0"
 
 [tool.poetry.scripts]
 poly = "polycli.cli:app"

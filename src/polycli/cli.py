@@ -1075,40 +1075,12 @@ def deploy_bot(
         str, typer.Option("--market", "-m", help="Market to trade on (ignored for arb)")
     ] = "TRUMP24",
 ):
-    """Deploy an autonomous trading bot"""
-    console.print(f"Deploying bot with strategy [bold cyan]{strategy}[/bold cyan]...")
-
-    import asyncio
-    from polycli.agents.graph import create_trading_graph
-
-    mode = "arb" if strategy == "arb" else "default"
-    graph = create_trading_graph(mode=mode)
-
-    initial_state = {
-        "messages": [],
-        "market_data": {"token_id": market, "price": 0.55},
-        "positions": [],
-        "strategy": strategy,
-        "risk_score": 0.0,
-        "last_action": "INIT",
-        "next_step": "",
-        "arb_opportunities": [],
-    }
-
-    async def run_bot():
-        result = await graph.ainvoke(initial_state)
-        console.print(f"\n[bold green]Bot Workflow Complete[/bold green]")
-        for msg in result.get("messages", []):
-            # messages might be objects or strings depending on add_messages
-            content = msg.content if hasattr(msg, "content") else str(msg)
-            console.print(f"  > {content}")
-
-        if strategy == "arb" and result.get("arb_opportunities"):
-            console.print(
-                f"\n[bold yellow]Analysis:[/bold yellow] Found {len(result['arb_opportunities'])} arbs."
-            )
-
-    asyncio.run(run_bot())
+    """Deploy an autonomous trading bot [DEPRECATED: Use TradingTools instead]"""
+    console.print(
+        f"[yellow]Warning:[/yellow] Legacy graph-based trading is deprecated."
+    )
+    console.print(f"Use TradingTools for agentic trading execution.")
+    return
 
 
 analytics_app = typer.Typer(help="Trading analytics commands")

@@ -1,0 +1,8 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+include pyproject.toml
+recursive-include src/polycli *.py
+recursive-include src/polycli *.css
+recursive-include src/polycli *.html
+recursive-include completions *
